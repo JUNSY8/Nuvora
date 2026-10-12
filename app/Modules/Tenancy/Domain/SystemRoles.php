@@ -1,0 +1,102 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Modules\Tenancy\Domain;
+
+final class SystemRoles
+{
+    public const OWNER = 'tenant_owner';
+
+    /**
+     * @return array<string, array{name: string, permissions: list<string>}>
+     */
+    public static function definitions(): array
+    {
+        return [
+            self::OWNER => [
+                'name' => 'Propietario',
+                'permissions' => Permission::all(),
+            ],
+            'tenant_administrator' => [
+                'name' => 'Administrador',
+                'permissions' => [
+                    Permission::TENANTS_VIEW,
+                    Permission::TENANTS_UPDATE,
+                    Permission::USERS_VIEW,
+                    Permission::USERS_MANAGE,
+                    Permission::ROLES_VIEW,
+                    Permission::ROLES_MANAGE,
+                    Permission::AUDIT_VIEW,
+                    Permission::PARKING_VIEW,
+                    Permission::PARKING_CREATE,
+                    Permission::PARKING_UPDATE,
+                    Permission::VEHICLES_VIEW,
+                    Permission::VEHICLES_CREATE,
+                    Permission::VEHICLES_UPDATE,
+                    Permission::SESSIONS_CREATE,
+                    Permission::SESSIONS_CLOSE,
+                    Permission::PAYMENTS_VIEW,
+                    Permission::PAYMENTS_CREATE,
+                    Permission::REPORTS_VIEW,
+                ],
+            ],
+            'supervisor' => [
+                'name' => 'Supervisor',
+                'permissions' => [
+                    Permission::TENANTS_VIEW,
+                    Permission::USERS_VIEW,
+                    Permission::AUDIT_VIEW,
+                    Permission::PARKING_VIEW,
+                    Permission::VEHICLES_VIEW,
+                    Permission::SESSIONS_CREATE,
+                    Permission::SESSIONS_CLOSE,
+                    Permission::PAYMENTS_VIEW,
+                    Permission::REPORTS_VIEW,
+                ],
+            ],
+            'cashier' => [
+                'name' => 'Cajero',
+                'permissions' => [
+                    Permission::PARKING_VIEW,
+                    Permission::VEHICLES_VIEW,
+                    Permission::SESSIONS_CREATE,
+                    Permission::SESSIONS_CLOSE,
+                    Permission::PAYMENTS_VIEW,
+                    Permission::PAYMENTS_CREATE,
+                ],
+            ],
+            'parking_operator' => [
+                'name' => 'Operador',
+                'permissions' => [
+                    Permission::PARKING_VIEW,
+                    Permission::VEHICLES_VIEW,
+                    Permission::SESSIONS_CREATE,
+                    Permission::SESSIONS_CLOSE,
+                ],
+            ],
+            'accountant' => [
+                'name' => 'Contador',
+                'permissions' => [
+                    Permission::PAYMENTS_VIEW,
+                    Permission::REPORTS_VIEW,
+                ],
+            ],
+            'report_viewer' => [
+                'name' => 'Consulta',
+                'permissions' => [
+                    Permission::PARKING_VIEW,
+                    Permission::REPORTS_VIEW,
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function keys(): array
+    {
+        return array_keys(self::definitions());
+    }
+}

@@ -1,0 +1,77 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Modules\Tenancy\Domain;
+
+final class Permission
+{
+    public const TENANTS_VIEW = 'tenants.view';
+
+    public const TENANTS_UPDATE = 'tenants.update';
+
+    public const USERS_VIEW = 'users.view';
+
+    public const USERS_MANAGE = 'users.manage';
+
+    public const ROLES_VIEW = 'roles.view';
+
+    public const ROLES_MANAGE = 'roles.manage';
+
+    public const AUDIT_VIEW = 'audit.view';
+
+    public const PARKING_VIEW = 'parking.view';
+
+    public const PARKING_CREATE = 'parking.create';
+
+    public const PARKING_UPDATE = 'parking.update';
+
+    public const PARKING_DELETE = 'parking.delete';
+
+    public const VEHICLES_VIEW = 'vehicles.view';
+
+    public const VEHICLES_CREATE = 'vehicles.create';
+
+    public const VEHICLES_UPDATE = 'vehicles.update';
+
+    public const SESSIONS_CREATE = 'sessions.create';
+
+    public const SESSIONS_CLOSE = 'sessions.close';
+
+    public const PAYMENTS_VIEW = 'payments.view';
+
+    public const PAYMENTS_CREATE = 'payments.create';
+
+    public const PAYMENTS_REFUND = 'payments.refund';
+
+    public const REPORTS_VIEW = 'reports.view';
+
+    /**
+     * @return list<string>
+     */
+    public static function all(): array
+    {
+        return [
+            self::TENANTS_VIEW,
+            self::TENANTS_UPDATE,
+            self::USERS_VIEW,
+            self::USERS_MANAGE,
+            self::ROLES_VIEW,
+            self::ROLES_MANAGE,
+            self::AUDIT_VIEW,
+            self::PARKING_VIEW,
+            self::PARKING_CREATE,
+            self::PARKING_UPDATE,
+            self::PARKING_DELETE,
+            self::VEHICLES_VIEW,
+            self::VEHICLES_CREATE,
+            self::VEHICLES_UPDATE,
+            self::SESSIONS_CREATE,
+            self::SESSIONS_CLOSE,
+            self::PAYMENTS_VIEW,
+            self::PAYMENTS_CREATE,
+            self::PAYMENTS_REFUND,
+            self::REPORTS_VIEW,
+        ];
+    }
+}
