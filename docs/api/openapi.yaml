@@ -1,0 +1,85 @@
+openapi: 3.0.3
+info:
+  title: Nuvora API
+  version: 0.1.0
+  description: Contrato inicial de salud y autenticación.
+servers:
+  - url: http://localhost:8080
+paths:
+  /health/live:
+    get:
+      summary: Proceso de la aplicación en ejecución
+      responses:
+        "200":
+          description: La aplicación responde
+  /health/ready:
+    get:
+      summary: Dependencias necesarias para operar
+      responses:
+        "200":
+          description: Base de datos, Redis, cola y almacenamiento responden
+        "503":
+          description: Alguna dependencia no responde
+  /api/v1/auth/register:
+    post:
+      summary: Registrar un usuario y abrir sesión
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, password_confirmation]
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+                password_confirmation: { type: string, format: password }
+      responses:
+        "201":
+          description: Usuario creado
+        "422":
+          description: Datos inválidos
+  /api/v1/auth/login:
+    post:
+      summary: Iniciar sesión
+      responses:
+        "200":
+          description: Sesión iniciada
+        "401":
+          description: Credenciales inválidas
+        "429":
+          description: Demasiados intentos
+  /api/v1/auth/logout:
+    post:
+      summary: Cerrar la sesión actual
+      responses:
+        "200":
+          description: Sesión cerrada
+        "401":
+          description: No autenticado
+  /api/v1/auth/me:
+    get:
+      summary: Usuario autenticado
+      responses:
+        "200":
+          description: Perfil actual
+        "401":
+          description: No autenticado
+components:
+  schemas:
+    Error:
+      type: object
+      required: [success, error, request_id]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: object
+          required: [code, message, details]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: { type: object }
+        request_id: { type: string }

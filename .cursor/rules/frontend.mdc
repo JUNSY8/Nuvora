@@ -1,0 +1,31 @@
+---
+description: Vue 3 and TypeScript standards for Nuvora.
+alwaysApply: true
+---
+# Frontend
+
+Use Vue 3, TypeScript, Vite, and the project's selected UI system.
+
+Use strict TypeScript.
+
+Keep business rules out of Vue components. Components orchestrate presentation; business decisions belong in backend/application/domain code.
+
+Prefer small, composable components.
+
+Every asynchronous view should consider:
+- loading
+- empty
+- success
+- error
+- permission denied
+- offline/degraded states where relevant
+
+Forms require validation and accessible error messages.
+
+Tables must support appropriate loading, empty, error, pagination/filtering, and responsive behavior.
+
+Avoid duplicated API logic.
+
+Do not expose secrets or privileged configuration to the browser.
+
+Follow WCAG-oriented accessibility practices.

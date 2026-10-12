@@ -1,0 +1,29 @@
+---
+description: Security and privacy rules for Nuvora.
+alwaysApply: true
+---
+# Security
+
+Treat all client input, device input, webhook input, uploaded files, and external API responses as untrusted.
+
+Every mutation must be authorized.
+
+Protect against IDOR, cross-tenant access, mass assignment, SQL injection, XSS, CSRF, SSRF, path traversal, command injection, replay, and unsafe file uploads.
+
+Use secure password hashing and framework authentication.
+
+Use least privilege for roles and service credentials.
+
+Never store raw card data or CVV. Payment providers must tokenize sensitive payment information.
+
+Verify webhook signatures and make webhook processing idempotent.
+
+Encrypt sensitive credentials at rest and use TLS in transit.
+
+Camera/device credentials must never appear in logs or API responses.
+
+LPR evidence and plate data must have configurable retention and access controls.
+
+Security-sensitive operations must produce audit events.
+
+When reviewing code, prioritize security and tenant isolation before style.

@@ -1,0 +1,53 @@
+---
+description: Nuvora Modular Monolith and DDD-inspired architecture rules.
+alwaysApply: true
+---
+# Architecture
+
+Nuvora Cloud uses a Modular Monolith with DDD-inspired boundaries.
+
+Preferred structure:
+
+app/Modules/
+  Identity/
+  Tenancy/
+  Parking/
+  Vehicles/
+  Access/
+  Tariffs/
+  Reservations/
+  Memberships/
+  Payments/
+  Billing/
+  Devices/
+  Lpr/
+  Notifications/
+  Reporting/
+  Audit/
+  Integrations/
+
+Each module may contain:
+Domain/
+Application/
+Infrastructure/
+Presentation/
+
+Domain must not depend on HTTP, database, queues, or vendor SDKs.
+
+Application orchestrates use cases.
+
+Infrastructure implements persistence and external integrations.
+
+Presentation contains controllers, requests, resources, routes, and UI-facing adapters.
+
+Controllers must remain thin.
+
+Do not create repositories, services, events, or abstractions without a concrete architectural reason.
+
+Modules communicate through explicit application contracts and domain/integration events, not by reaching into each other's internals.
+
+Use transactions around critical state changes.
+
+Use idempotency for external/device/payment events.
+
+Prefer database constraints for invariants that must never be violated.

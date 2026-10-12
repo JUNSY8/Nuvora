@@ -1,0 +1,27 @@
+---
+description: Testing standards for Nuvora.
+alwaysApply: true
+---
+# Testing
+
+Critical business behavior must have automated tests.
+
+Prioritize:
+- authentication
+- authorization
+- tenant isolation
+- reservations
+- parking sessions
+- tariff calculation
+- memberships
+- payments
+- LPR events
+- device events
+
+Use unit tests for isolated domain logic and feature/integration tests for workflows.
+
+Test negative paths, authorization failures, duplicate events, concurrency-sensitive behavior, and external failure modes.
+
+A feature is not complete when critical behavior is untested.
+
+Tests must be deterministic and independent.

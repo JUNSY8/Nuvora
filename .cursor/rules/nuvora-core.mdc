@@ -1,0 +1,34 @@
+---
+description: Core engineering standards for Nuvora.
+alwaysApply: true
+---
+# Nuvora Core
+
+Nuvora is a production-oriented, multi-tenant parking management SaaS.
+
+## Priorities
+1. Correctness
+2. Security
+3. Tenant isolation
+4. Data integrity
+5. Maintainability
+6. Testability
+7. Performance
+
+Before changing code, inspect the relevant module, dependencies, existing conventions, and tests.
+
+Do not introduce microservices into the core application. Nuvora Cloud is a Modular Monolith.
+
+Never place business rules in controllers, Vue components, migrations, jobs, or generic helpers when they belong to the domain/application layer.
+
+Never trust tenant_id supplied by the client. Tenant context must come from trusted application context.
+
+Every tenant-owned resource must be isolated and tested against cross-tenant access.
+
+Never use floating point for monetary values.
+
+Do not log secrets, passwords, payment credentials, camera credentials, tokens, or sensitive personal data.
+
+Prefer framework-native security and infrastructure features over custom implementations.
+
+Do not make unrelated refactors while implementing a feature.

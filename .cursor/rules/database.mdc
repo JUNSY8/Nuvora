@@ -1,0 +1,27 @@
+---
+description: PostgreSQL and persistence rules for Nuvora.
+alwaysApply: true
+---
+# Database
+
+PostgreSQL is the primary database.
+
+Use UUID/ULID consistently with the project standard.
+
+Never use floating-point columns for money. Store monetary amounts as integer minor units or precise decimals.
+
+Tenant-owned tables must have tenant_id and appropriate indexes.
+
+Use foreign keys, unique constraints, check constraints, and other database guarantees when appropriate.
+
+Design indexes from real query patterns. Avoid speculative indexes.
+
+Prevent N+1 queries.
+
+Use transactions for multi-step state changes.
+
+For reservations, capacity, payments, sessions, and other concurrent workflows, explicitly consider locking, uniqueness, exclusion constraints, or optimistic concurrency.
+
+Migrations must be safe for existing data and reversible where practical.
+
+Never silently drop production data.
