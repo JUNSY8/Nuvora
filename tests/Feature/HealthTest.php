@@ -37,6 +37,9 @@ class HealthTest extends TestCase
 
     public function test_ready_fails_when_redis_is_unavailable(): void
     {
+        // Deterministic even when a real Redis is reachable (for example inside Docker).
+        Redis::shouldReceive('connection')->andThrow(new \RuntimeException('Connection refused'));
+
         $response = $this->getJson('/health/ready');
 
         $response->assertStatus(503)
