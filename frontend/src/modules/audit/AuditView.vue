@@ -2,7 +2,11 @@
 import { onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 
+import PageHeader from '@/components/ui/PageHeader.vue'
+import PaginationBar from '@/components/ui/PaginationBar.vue'
+import StateCard from '@/components/ui/StateCard.vue'
 import { listAudit } from '@/modules/tenancy/api'
+import { formatDateTime } from '@/services/format'
 import { apiErrorCode, parseApiError } from '@/services/http'
 import { useAuthStore } from '@/stores/auth'
 import type { AuditEvent, PageMeta } from '@/types/api'
@@ -14,30 +18,56 @@ const meta = ref<PageMeta | null>(null)
 const state = ref<'loading' | 'ready' | 'empty' | 'empty-tenant' | 'denied' | 'error'>('loading')
 const errorMessage = ref('')
 
-const actionLabels: Record<string, string> = {
-  'tenant.created': 'Empresa creada',
-  'tenant.updated': 'Empresa actualizada',
-  'membership.created': 'Miembro agregado',
-  'membership.status_changed': 'Estado de membresía',
-  'membership.roles_synced': 'Roles actualizados',
-  'role.created': 'Rol creado',
-  'auth.logout': 'Cierre de sesión',
+const actions: Record<string, { label: string; icon: string }> = {
+  'tenant.created': { label: 'Empresa creada', icon: 'ri-building-line' },
+  'tenant.updated': { label: 'Empresa actualizada', icon: 'ri-building-line' },
+  'membership.created': { label: 'Miembro agregado', icon: 'ri-user-add-line' },
+  'membership.status_changed': { label: 'Estado de membresía', icon: 'ri-user-settings-line' },
+  'membership.roles_synced': { label: 'Roles actualizados', icon: 'ri-shield-user-line' },
+  'role.created': { label: 'Rol creado', icon: 'ri-shield-user-line' },
+  'auth.logout': { label: 'Cierre de sesión', icon: 'ri-logout-box-r-line' },
+  'parking_lot.created': { label: 'Parqueadero creado', icon: 'ri-parking-box-line' },
+  'parking_lot.updated': { label: 'Parqueadero actualizado', icon: 'ri-parking-box-line' },
+  'parking_lot.deleted': { label: 'Parqueadero eliminado', icon: 'ri-parking-box-line' },
+  'parking_lot.hours_updated': { label: 'Horario actualizado', icon: 'ri-time-line' },
+  'parking_zone.created': { label: 'Zona creada', icon: 'ri-stack-line' },
+  'parking_zone.updated': { label: 'Zona actualizada', icon: 'ri-stack-line' },
+  'parking_zone.deleted': { label: 'Zona eliminada', icon: 'ri-stack-line' },
+  'parking_space.created': { label: 'Espacio creado', icon: 'ri-layout-grid-line' },
+  'parking_space.bulk_created': { label: 'Espacios creados en bloque', icon: 'ri-layout-grid-line' },
+  'parking_space.updated': { label: 'Espacio actualizado', icon: 'ri-layout-grid-line' },
+  'parking_space.status_changed': { label: 'Estado de espacio', icon: 'ri-forbid-2-line' },
+  'parking_space.deleted': { label: 'Espacio retirado', icon: 'ri-layout-grid-line' },
+  'parking_gate.created': { label: 'Puerta creada', icon: 'ri-door-open-line' },
+  'parking_gate.updated': { label: 'Puerta actualizada', icon: 'ri-door-open-line' },
+  'parking_gate.deleted': { label: 'Puerta eliminada', icon: 'ri-door-open-line' },
+  'device.created': { label: 'Dispositivo registrado', icon: 'ri-router-line' },
+  'device.updated': { label: 'Dispositivo actualizado', icon: 'ri-router-line' },
+  'device.status_changed': { label: 'Estado de dispositivo', icon: 'ri-tools-line' },
+  'device.deleted': { label: 'Dispositivo retirado', icon: 'ri-router-line' },
+  'customer.created': { label: 'Cliente creado', icon: 'ri-user-add-line' },
+  'customer.updated': { label: 'Cliente actualizado', icon: 'ri-contacts-book-line' },
+  'customer.status_changed': { label: 'Estado de cliente', icon: 'ri-contacts-book-line' },
+  'vehicle.created': { label: 'Vehículo registrado', icon: 'ri-car-line' },
+  'vehicle.updated': { label: 'Vehículo actualizado', icon: 'ri-car-line' },
+  'vehicle.status_changed': { label: 'Estado de vehículo', icon: 'ri-forbid-line' },
+  'vehicle.customer_linked': { label: 'Cliente vinculado a vehículo', icon: 'ri-link' },
+  'vehicle.relationship_changed': { label: 'Relación con vehículo', icon: 'ri-arrow-left-right-line' },
+  'vehicle.customer_unlinked': { label: 'Cliente desvinculado', icon: 'ri-link-unlink' },
 }
 
-function label(action: string): string {
-  return actionLabels[action] ?? action
-}
-
-function formatWhen(value: string | null): string {
-  if (!value) {
-    return ''
-  }
-
-  return new Intl.DateTimeFormat('es-CO', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: auth.currentTenant?.timezone ?? 'America/Bogota',
-  }).format(new Date(value))
+const resources: Record<string, string> = {
+  tenant: 'Empresa',
+  membership: 'Membresía',
+  role: 'Rol',
+  user: 'Usuario',
+  parking_lot: 'Parqueadero',
+  parking_zone: 'Zona',
+  parking_space: 'Espacio',
+  parking_gate: 'Puerta',
+  device: 'Dispositivo',
+  customer: 'Cliente',
+  vehicle: 'Vehículo',
 }
 
 async function load(page = 1): Promise<void> {
@@ -76,59 +106,46 @@ onMounted(() => load())
 </script>
 
 <template>
-  <div class="space-y-6">
-    <header>
-      <h1 class="text-2xl font-semibold text-vz-heading">Auditoría</h1>
-      <p class="mt-2 text-vz-muted">Acciones sensibles de esta empresa.</p>
-    </header>
+  <div>
+    <PageHeader title="Auditoría" subtitle="Acciones sensibles registradas en esta empresa." :breadcrumbs="[{ label: 'Administración' }, { label: 'Auditoría' }]" />
 
-    <section v-if="state === 'loading'" class="rounded-vz border border-vz-border bg-vz-card p-6 text-vz-muted">Cargando auditoría…</section>
+    <StateCard v-if="state === 'loading'" variant="loading" />
+    <StateCard v-else-if="state === 'empty-tenant'" variant="no-tenant" message="Selecciona una empresa para ver su auditoría.">
+      <RouterLink class="vz-btn vz-btn-primary" :to="{ name: 'tenant' }">Ir a empresa</RouterLink>
+    </StateCard>
+    <StateCard v-else-if="state === 'denied'" variant="denied" message="Tu rol no permite consultar la auditoría." />
+    <StateCard v-else-if="state === 'error'" variant="error" :message="errorMessage">
+      <button class="vz-btn vz-btn-primary" type="button" @click="load(meta?.current_page ?? 1)">Reintentar</button>
+    </StateCard>
+    <StateCard v-else-if="state === 'empty'" variant="empty" title="Sin eventos" message="Todavía no hay acciones registradas para esta empresa." />
 
-    <section v-else-if="state === 'empty-tenant'" class="rounded-vz border border-dashed border-vz-border bg-vz-card p-6">
-      <h2 class="text-lg font-semibold text-vz-heading">Sin empresa activa</h2>
-      <p class="mt-2 text-vz-muted">
-        Selecciona una empresa para ver su auditoría.
-        <RouterLink class="font-medium text-vz-topbar-item underline" :to="{ name: 'tenant' }">Ir a empresa</RouterLink>
-      </p>
-    </section>
-
-    <section v-else-if="state === 'denied'" class="rounded-vz border border-vz-border bg-vz-card p-6" role="alert">
-      <h2 class="text-lg font-semibold text-vz-heading">Sin permiso</h2>
-      <p class="mt-2 text-vz-muted">Tu rol no permite consultar la auditoría.</p>
-    </section>
-
-    <section v-else-if="state === 'error'" class="rounded-vz border border-vz-border bg-vz-card p-6">
-      <p class="text-sm text-vz-danger" role="alert">{{ errorMessage }}</p>
-      <button class="mt-4 rounded-vz bg-vz-primary px-4 py-2 text-sm text-white" type="button" @click="load(meta?.current_page ?? 1)">Reintentar</button>
-    </section>
-
-    <section v-else-if="state === 'empty'" class="rounded-vz border border-dashed border-vz-border bg-vz-card p-6">
-      <h2 class="text-lg font-semibold text-vz-heading">Sin eventos</h2>
-      <p class="mt-2 text-vz-muted">Todavía no hay acciones registradas para esta empresa.</p>
-    </section>
-
-    <section v-else class="overflow-x-auto rounded-vz border border-vz-border bg-vz-card">
-      <table class="min-w-full text-left text-sm">
-        <thead class="bg-vz-elevated text-vz-heading">
-          <tr>
-            <th class="px-4 py-3 font-medium" scope="col">Cuándo</th>
-            <th class="px-4 py-3 font-medium" scope="col">Acción</th>
-            <th class="px-4 py-3 font-medium" scope="col">Recurso</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in items" :key="item.id" class="border-t border-vz-border hover:bg-[#25282c]">
-            <td class="px-4 py-3">{{ formatWhen(item.created_at) }}</td>
-            <td class="px-4 py-3">{{ label(item.action) }}</td>
-            <td class="px-4 py-3">{{ item.resource_type }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="meta && meta.last_page > 1" class="flex items-center justify-between border-t border-vz-border px-4 py-3">
-        <button class="rounded-vz bg-vz-topbar-button px-3 py-2 text-sm disabled:opacity-40" type="button" :disabled="meta.current_page <= 1" @click="load(meta.current_page - 1)">Anterior</button>
-        <p class="text-vz-muted">Página {{ meta.current_page }} de {{ meta.last_page }}</p>
-        <button class="rounded-vz bg-vz-topbar-button px-3 py-2 text-sm disabled:opacity-40" type="button" :disabled="meta.current_page >= meta.last_page" @click="load(meta.current_page + 1)">Siguiente</button>
+    <section v-else class="vz-card overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="vz-table">
+          <thead>
+            <tr>
+              <th scope="col">Cuándo</th>
+              <th scope="col">Acción</th>
+              <th scope="col">Recurso</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in items" :key="item.id">
+              <td class="whitespace-nowrap text-vz-muted">{{ formatDateTime(item.created_at, auth.currentTenant?.timezone ?? 'America/Bogota') }}</td>
+              <td>
+                <span class="flex items-center gap-2">
+                  <span class="flex size-7 items-center justify-center rounded bg-vz-elevated text-vz-secondary-text" aria-hidden="true">
+                    <i :class="actions[item.action]?.icon ?? 'ri-history-line'" />
+                  </span>
+                  {{ actions[item.action]?.label ?? item.action }}
+                </span>
+              </td>
+              <td>{{ resources[item.resource_type] ?? item.resource_type }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
+      <PaginationBar v-if="meta" :meta="meta" @change="load" />
     </section>
   </div>
 </template>

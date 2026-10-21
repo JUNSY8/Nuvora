@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { RouterLink } from 'vue-router'
 
+import AuthLayout from '@/modules/auth/AuthLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -27,29 +28,30 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <template>
-  <main class="flex min-h-screen items-center justify-center bg-vz-body px-4 py-12">
-    <div class="w-full max-w-[420px]">
-      <p class="mb-5 text-center text-2xl font-semibold text-vz-heading">Nuvora</p>
-      <section class="rounded-vz border border-vz-border bg-vz-card p-6 shadow-[0_1px_2px_rgba(56,65,74,0.15)]">
-        <header class="text-center">
-          <h1 class="text-base font-semibold text-vz-heading">Recuperar contraseña</h1>
-          <p class="mt-1 text-sm text-vz-muted">Te enviaremos un enlace si la cuenta existe.</p>
-        </header>
-        <form class="mt-6 space-y-4" @submit.prevent="onSubmit">
-          <div>
-            <label class="mb-2 block text-sm font-medium text-vz-text" for="email">Correo</label>
-            <input id="email" v-model="email" class="w-full rounded-vz border border-vz-input-border bg-vz-input px-3 py-2 text-sm text-vz-text outline-none focus:border-vz-primary focus:ring-1 focus:ring-vz-primary" type="email" autocomplete="username" required :aria-invalid="errorMessage !== ''" />
-          </div>
-          <p v-if="errorMessage" class="text-sm text-vz-danger" role="alert">{{ errorMessage }}</p>
-          <p v-if="successMessage" class="text-sm text-vz-success" role="status">{{ successMessage }}</p>
-          <button class="w-full rounded-vz bg-vz-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-60" type="submit" :disabled="submitting">
-            {{ submitting ? 'Enviando…' : 'Enviar enlace' }}
-          </button>
-        </form>
-      </section>
-      <p class="mt-4 text-center text-sm text-vz-muted">
-        <RouterLink class="font-medium text-vz-text underline" to="/login">Volver al inicio de sesión</RouterLink>
-      </p>
+  <AuthLayout title="¿Olvidaste tu contraseña?" subtitle="Te enviaremos un enlace para restablecerla.">
+    <div class="mb-5 flex items-center gap-3 rounded-vz border border-vz-warning/30 bg-vz-warning/10 px-3 py-2.5 text-[13px]">
+      <i class="ri-mail-send-line text-xl text-vz-warning" aria-hidden="true" />
+      Escribe el correo de tu cuenta y revisa tu bandeja de entrada.
     </div>
-  </main>
+
+    <form class="space-y-4" @submit.prevent="onSubmit">
+      <div>
+        <label class="vz-label" for="email">Correo</label>
+        <div class="relative">
+          <i class="ri-mail-line pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-vz-muted" aria-hidden="true" />
+          <input id="email" v-model="email" class="vz-input ps-9" type="email" autocomplete="username" required :aria-invalid="errorMessage !== ''" />
+        </div>
+      </div>
+      <p v-if="errorMessage" class="rounded-vz border border-vz-danger/40 bg-vz-danger/10 px-3 py-2.5 text-[13px] text-vz-danger-text" role="alert">{{ errorMessage }}</p>
+      <p v-if="successMessage" class="rounded-vz border border-vz-success/40 bg-vz-success/10 px-3 py-2.5 text-[13px] text-vz-success-text" role="status">{{ successMessage }}</p>
+      <button class="vz-btn vz-btn-success w-full py-2.5" type="submit" :disabled="submitting">
+        {{ submitting ? 'Enviando…' : 'Enviar enlace' }}
+      </button>
+    </form>
+
+    <p class="mt-6 text-center text-[13px] text-vz-muted">
+      ¿La recordaste?
+      <RouterLink class="font-semibold text-vz-secondary-text hover:underline" to="/login">Volver a iniciar sesión</RouterLink>
+    </p>
+  </AuthLayout>
 </template>
