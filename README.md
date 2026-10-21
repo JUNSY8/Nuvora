@@ -3372,6 +3372,10 @@ Deliverable:
 
 A working development platform.
 
+Status:
+
+Implemented. Review during 0.3: the Redis readiness test depended on Redis being unreachable and failed inside Docker; it now forces the failure explicitly. Static analysis beyond Pint and `vue-tsc` (for example Larastan) is still pending.
+
 ---
 
 
@@ -3403,6 +3407,8 @@ Status:
 
 Implemented in the codebase: users, session authentication, email verification, password reset, tenants, memberships, tenant context, permission-based roles, tenant isolation, and the audit foundation. See ADR-012.
 
+Review during 0.3: the OpenAPI contract only described health and login; it now documents every 0.2 endpoint. The API supports changing a member's roles and creating custom roles, but the interface only adds and suspends members; role management screens are pending.
+
 ---
 
 
@@ -3427,6 +3433,26 @@ Deliverable:
 
 Complete digital representation of physical parking infrastructure.
 
+Status:
+
+Implemented in the codebase:
+
+```text
+Parking lots with address, coordinates, timezone, currency and grace period
+Weekly operating hours in lot-local time, including overnight shifts
+Zones
+Spaces with type, floor, reservable/assignable flags and bulk numbering
+Space state machine with audited administrative transitions
+Live occupancy per lot (capacity excludes out-of-service spaces)
+Gates with direction and status
+Device registry (camera, barrier, reader, kiosk...) linked to lot and gate
+devices.view / devices.manage permissions, backfilled to existing system roles
+Composite tenant foreign keys and row level security on every new table
+Operations dashboard, space map and device screens
+```
+
+Occupied and reserved states are reserved for parking sessions (0.5) and reservations (0.7). Device connectivity (online, offline, degraded) arrives with Edge heartbeats (0.13). See ADR-013.
+
 ---
 
 
@@ -3448,6 +3474,28 @@ Vehicle history
 Deliverable:
 
 Complete customer and vehicle domain.
+
+Status:
+
+Implemented in the codebase:
+
+```text
+Customers: individuals, businesses and corporates
+Individuals affiliated to a business or corporate customer
+Documents normalized and unique per tenant and document type
+Vehicles with type, brand, model, color, year and electric flag
+Plate normalization (ABC-123 = ABC 123 = ABC123), unique per tenant and country
+Country plate rules behind PlateRules (Colombia: car, motorcycle, motocarro, diplomatic, trailer, temporary)
+Live plate check with format, suggested type and duplicate detection
+Customer-vehicle relationships (owner, driver, authorized) with a single active owner and ownership transfer
+Vehicle status (active, inactive, blocked with a mandatory reason)
+Vehicle history timeline (registration, changes, plate corrections, status, links)
+customers.view / customers.create / customers.update, backfilled to existing system roles
+Composite tenant foreign keys, partial unique indexes and row level security on every new table
+Customer directory, customer profile, vehicle list and vehicle detail screens
+```
+
+Customers are deactivated, not deleted; erasure or anonymization on request (habeas data) is pending before production. Sessions (0.5), reservations (0.7) and LPR reads (0.14) will append to the vehicle history. See ADR-014.
 
 ---
 

@@ -1,6 +1,6 @@
 # Desarrollo local
 
-Nuvora Cloud se ejecuta como monolito modular. La especificación de producto sigue en el `README.md` de la raíz. Este documento solo describe cómo levantar la versión 0.2.
+Nuvora Cloud se ejecuta como monolito modular. La especificación de producto sigue en el `README.md` de la raíz. Este documento solo describe cómo levantar la versión 0.3.
 
 ## Requisitos
 
@@ -20,7 +20,9 @@ docker compose exec app php artisan migrate --seed
 
 La interfaz queda en `http://localhost:5173` y la API en `http://localhost:8080`. Mailpit queda en `http://localhost:8025`.
 
-La cuenta de desarrollo que crea el seeder, solo con `APP_ENV=local`, es `admin@nuvora.test` con la contraseña `password`. Esa cuenta queda verificada y como propietaria de la empresa `Nuvora Demo`. `FRONTEND_URL` apunta a la interfaz que recibe los enlaces de restablecimiento; la verificación de correo llega a la API y redirige a esa interfaz.
+La cuenta de desarrollo que crea el seeder, solo con `APP_ENV=local`, es `admin@nuvora.test` con la contraseña `password`. Esa cuenta queda verificada y como propietaria de la empresa `Nuvora Demo`, con el parqueadero `Sede Centro` (4 zonas, 74 espacios, 2 puertas y 5 dispositivos), 6 clientes (personas, una empresa y un corporativo) y 7 vehículos, uno de ellos bloqueado.
+
+El servicio `frontend` vigila los archivos por sondeo (`VITE_USE_POLLING`), porque el volumen montado desde Windows o macOS no avisa los cambios dentro del contenedor. No ejecutes otro `vite` en el host en el puerto 5173: el navegador puede terminar en cualquiera de los dos. `FRONTEND_URL` apunta a la interfaz que recibe los enlaces de restablecimiento; la verificación de correo llega a la API y redirige a esa interfaz.
 
 ## Pruebas fuera de Docker
 
@@ -34,3 +36,11 @@ npm --prefix frontend run build
 ```
 
 Las pruebas de backend usan SQLite en memoria. No usan la base de PostgreSQL del entorno local.
+
+Para validar las restricciones, la RLS y el comportamiento transaccional de PostgreSQL, ejecuta la suite contra una base aparte. Dentro del contenedor las variables de `docker-compose.yml` ganan sobre `phpunit.xml`, así que hay que pasar la base de pruebas de forma explícita; de lo contrario `RefreshDatabase` borraría la base de desarrollo:
+
+```bash
+docker compose exec postgres psql -U nuvora -d nuvora -c "create database nuvora_test;"
+
+docker compose exec -e DB_DATABASE=nuvora_test -e APP_ENV=testing -e SESSION_DRIVER=array -e CACHE_STORE=array -e QUEUE_CONNECTION=sync -e MAIL_MAILER=array app php artisan test
+```

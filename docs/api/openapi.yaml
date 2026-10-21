@@ -1,28 +1,52 @@
 openapi: 3.0.3
 info:
   title: Nuvora API
-  version: 0.1.0
-  description: Contrato inicial de salud y autenticación.
+  version: 0.4.0
+  description: |
+    Contrato de salud, identidad, empresas (tenancy), auditoría, infraestructura de
+    parqueaderos, registro de dispositivos, clientes y vehículos.
+
+    Autenticación por sesión (cookie) con protección CSRF de Sanctum: el cliente pide
+    `GET /sanctum/csrf-cookie` antes de cualquier mutación. La empresa activa se resuelve
+    desde la membresía del usuario; `X-Tenant-Id` solo elige entre empresas ya concedidas
+    y un `tenant_id` en el cuerpo nunca otorga acceso. Un recurso de otra empresa responde
+    404, nunca 403.
+
+    Toda respuesta exitosa usa `{ success: true, data, request_id }` y todo error usa el
+    esquema `Error`. Los listados paginados devuelven `data.items` y `data.meta`.
 servers:
   - url: http://localhost:8080
+tags:
+  - name: Salud
+  - name: Identidad
+  - name: Empresas
+  - name: Auditoría
+  - name: Parqueaderos
+  - name: Dispositivos
+  - name: Clientes
+  - name: Vehículos
 paths:
   /health/live:
     get:
+      tags: [Salud]
       summary: Proceso de la aplicación en ejecución
+      security: []
       responses:
-        "200":
-          description: La aplicación responde
+        "200": { description: "La aplicación responde" }
   /health/ready:
     get:
+      tags: [Salud]
       summary: Dependencias necesarias para operar
+      security: []
       responses:
-        "200":
-          description: Base de datos, Redis, cola y almacenamiento responden
-        "503":
-          description: Alguna dependencia no responde
+        "200": { description: "Base de datos, Redis, cola y almacenamiento responden" }
+        "503": { description: "Alguna dependencia no responde" }
+
   /api/v1/auth/register:
     post:
+      tags: [Identidad]
       summary: Registrar un usuario y abrir sesión
+      security: []
       requestBody:
         required: true
         content:
@@ -33,41 +57,816 @@ paths:
               properties:
                 name: { type: string }
                 email: { type: string, format: email }
-                password: { type: string, format: password }
+                password: { type: string, format: password, minLength: 12 }
                 password_confirmation: { type: string, format: password }
       responses:
-        "201":
-          description: Usuario creado
-        "422":
-          description: Datos inválidos
+        "201": { description: "Usuario creado" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "429": { $ref: "#/components/responses/TooManyAttempts" }
   /api/v1/auth/login:
     post:
+      tags: [Identidad]
       summary: Iniciar sesión
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+                remember: { type: boolean }
       responses:
-        "200":
-          description: Sesión iniciada
-        "401":
-          description: Credenciales inválidas
-        "429":
-          description: Demasiados intentos
+        "200": { description: "Sesión iniciada y perfil actual" }
+        "401": { description: "Credenciales inválidas (INVALID_CREDENTIALS)" }
+        "429": { $ref: "#/components/responses/TooManyAttempts" }
   /api/v1/auth/logout:
     post:
+      tags: [Identidad]
       summary: Cerrar la sesión actual
       responses:
-        "200":
-          description: Sesión cerrada
-        "401":
-          description: No autenticado
+        "200": { description: "Sesión cerrada" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
   /api/v1/auth/me:
     get:
-      summary: Usuario autenticado
+      tags: [Identidad]
+      summary: Usuario autenticado, empresas accesibles y empresa activa
+      responses:
+        "200": { description: "Perfil actual" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+  /api/v1/auth/forgot-password:
+    post:
+      tags: [Identidad]
+      summary: Enviar enlace de restablecimiento
+      description: Responde igual exista o no la cuenta.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "200": { description: "Mensaje genérico" }
+        "429": { $ref: "#/components/responses/TooManyAttempts" }
+  /api/v1/auth/reset-password:
+    post:
+      tags: [Identidad]
+      summary: Restablecer la contraseña con el token recibido
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, token, password, password_confirmation]
+              properties:
+                email: { type: string, format: email }
+                token: { type: string }
+                password: { type: string, format: password, minLength: 12 }
+                password_confirmation: { type: string, format: password }
+      responses:
+        "200": { description: "Contraseña actualizada" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/auth/email/verification-notification:
+    post:
+      tags: [Identidad]
+      summary: Reenviar el correo de verificación
+      responses:
+        "200": { description: "Enlace enviado" }
+        "429": { $ref: "#/components/responses/TooManyAttempts" }
+  /api/v1/auth/email/verify/{id}/{hash}:
+    get:
+      tags: [Identidad]
+      summary: Verificar el correo (enlace firmado)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: hash, in: path, required: true, schema: { type: string } }
+      responses:
+        "302": { description: "Redirige a la interfaz con `?verificado=1`" }
+        "403": { description: "Enlace inválido o vencido (INVALID_SIGNATURE)" }
+
+  /api/v1/tenants:
+    post:
+      tags: [Empresas]
+      summary: Crear una empresa; el usuario queda como propietario
+      description: Requiere correo verificado. Ignora cualquier `tenant_id` enviado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, timezone]
+              properties:
+                name: { type: string, maxLength: 120 }
+                timezone: { type: string, example: America/Bogota }
+      responses:
+        "201": { description: "Perfil con la nueva empresa activa" }
+        "403": { description: "Correo no verificado (EMAIL_NOT_VERIFIED)" }
+  /api/v1/tenant-context:
+    post:
+      tags: [Empresas]
+      summary: Elegir la empresa activa entre las membresías del usuario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id]
+              properties:
+                tenant_id: { $ref: "#/components/schemas/Ulid" }
+      responses:
+        "200": { description: "Perfil con la empresa activa" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/tenant:
+    get:
+      tags: [Empresas]
+      summary: Empresa activa
+      responses:
+        "200": { description: "Datos de la empresa" }
+        "409": { $ref: "#/components/responses/TenantRequired" }
+    patch:
+      tags: [Empresas]
+      summary: Actualizar la empresa activa (tenants.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, timezone]
+              properties:
+                name: { type: string, maxLength: 120 }
+                timezone: { type: string }
+      responses:
+        "200": { description: "Empresa y perfil actualizados" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/tenant/members:
+    get:
+      tags: [Empresas]
+      summary: Miembros de la empresa (users.view)
+      responses:
+        "200": { description: "`data.members`" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Empresas]
+      summary: Agregar un usuario existente como miembro (users.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, roles]
+              properties:
+                email: { type: string, format: email }
+                roles: { type: array, items: { type: string }, minItems: 1 }
+      responses:
+        "201": { description: "Miembro agregado" }
+        "422": { description: "Datos inválidos o regla de membresía (MEMBERSHIP_RULE)" }
+  /api/v1/tenant/members/{membership}:
+    patch:
+      tags: [Empresas]
+      summary: Activar o suspender una membresía (users.manage)
+      parameters: [{ $ref: "#/components/parameters/Membership" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [active, suspended] }
+      responses:
+        "200": { description: "Membresía actualizada" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "Regla de membresía (MEMBERSHIP_RULE)" }
+  /api/v1/tenant/members/{membership}/roles:
+    put:
+      tags: [Empresas]
+      summary: Reemplazar los roles de una membresía (roles.manage)
+      parameters: [{ $ref: "#/components/parameters/Membership" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [roles]
+              properties:
+                roles: { type: array, items: { type: string }, minItems: 1 }
+      responses:
+        "200": { description: "Roles actualizados" }
+        "422": { description: "Regla de membresía, por ejemplo el último propietario (MEMBERSHIP_RULE)" }
+  /api/v1/tenant/roles:
+    get:
+      tags: [Empresas]
+      summary: Roles de sistema y personalizados (roles.view)
+      responses:
+        "200": { description: "`data.roles`" }
+    post:
+      tags: [Empresas]
+      summary: Crear un rol personalizado con permisos del catálogo (roles.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, permissions]
+              properties:
+                name: { type: string, maxLength: 80 }
+                permissions: { type: array, items: { type: string }, minItems: 1 }
+      responses:
+        "201": { description: "Rol creado" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /api/v1/tenant/audit:
+    get:
+      tags: [Auditoría]
+      summary: Eventos de auditoría de la empresa (audit.view)
+      parameters: [{ $ref: "#/components/parameters/Page" }]
+      responses:
+        "200": { description: "Página de eventos, 20 por página" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/parking-lots:
+    get:
+      tags: [Parqueaderos]
+      summary: Parqueaderos con su ocupación (parking.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: per_page, in: query, schema: { type: integer, default: 25, maximum: 100 } }
+        - { name: search, in: query, description: "Nombre, código o ciudad", schema: { type: string } }
       responses:
         "200":
-          description: Perfil actual
-        "401":
-          description: No autenticado
+          description: Página de parqueaderos
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items: { type: array, items: { $ref: "#/components/schemas/ParkingLot" } }
+                          meta: { $ref: "#/components/schemas/PageMeta" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Parqueaderos]
+      summary: Crear un parqueadero (parking.create)
+      description: El código se normaliza a mayúsculas y es único por empresa. El parqueadero arranca abierto 24 horas los siete días.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingLotInput" }
+      responses:
+        "201": { description: "`data.lot`, con `operating_hours`" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/parking-lots/{lot}:
+    parameters: [{ $ref: "#/components/parameters/Lot" }]
+    get:
+      tags: [Parqueaderos]
+      summary: Detalle con horario y ocupación (parking.view)
+      responses:
+        "200": { description: "`data.lot`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Parqueaderos]
+      summary: Actualizar datos y configuración (parking.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingLotInput" }
+      responses:
+        "200": { description: "`data.lot`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      tags: [Parqueaderos]
+      summary: Eliminar un parqueadero vacío (parking.delete)
+      responses:
+        "200": { description: "Eliminado" }
+        "422": { description: "Tiene espacios, puertas o dispositivos (PARKING_LOT_NOT_EMPTY)" }
+  /api/v1/parking-lots/{lot}/operating-hours:
+    parameters: [{ $ref: "#/components/parameters/Lot" }]
+    put:
+      tags: [Parqueaderos]
+      summary: Reemplazar el horario semanal completo (parking.update)
+      description: Horas locales en la zona del parqueadero. Un cierre anterior a la apertura termina al día siguiente.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [days]
+              properties:
+                days:
+                  type: array
+                  minItems: 7
+                  maxItems: 7
+                  items: { $ref: "#/components/schemas/OperatingHour" }
+      responses:
+        "200": { description: "`data.operating_hours`" }
+        "422": { description: "Datos inválidos o regla de horario (PARKING_RULE)" }
+  /api/v1/parking-lots/{lot}/zones:
+    parameters: [{ $ref: "#/components/parameters/Lot" }]
+    get:
+      tags: [Parqueaderos]
+      summary: Zonas del parqueadero (parking.view)
+      responses:
+        "200": { description: "`data.zones`" }
+    post:
+      tags: [Parqueaderos]
+      summary: Crear una zona (parking.create)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingZoneInput" }
+      responses:
+        "201": { description: "`data.zone`" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/parking-lots/{lot}/zones/{zone}:
+    parameters:
+      - { $ref: "#/components/parameters/Lot" }
+      - { name: zone, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    patch:
+      tags: [Parqueaderos]
+      summary: Actualizar una zona (parking.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingZoneInput" }
+      responses:
+        "200": { description: "`data.zone`" }
+    delete:
+      tags: [Parqueaderos]
+      summary: Eliminar una zona sin espacios (parking.delete)
+      responses:
+        "200": { description: "Eliminada" }
+        "422": { description: "La zona tiene espacios (ZONE_HAS_SPACES)" }
+  /api/v1/parking-lots/{lot}/spaces:
+    parameters: [{ $ref: "#/components/parameters/Lot" }]
+    get:
+      tags: [Parqueaderos]
+      summary: Espacios ordenados por código (parking.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: per_page, in: query, schema: { type: integer, default: 100, maximum: 500 } }
+        - { name: zone_id, in: query, description: "ULID de zona o `none` para espacios sin zona", schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/SpaceStatus" } }
+        - { name: type, in: query, schema: { $ref: "#/components/schemas/SpaceType" } }
+        - { name: search, in: query, description: "Fragmento del código", schema: { type: string } }
+      responses:
+        "200":
+          description: Página de espacios
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items: { type: array, items: { $ref: "#/components/schemas/ParkingSpace" } }
+                          meta: { $ref: "#/components/schemas/PageMeta" }
+    post:
+      tags: [Parqueaderos]
+      summary: Crear un espacio disponible (parking.create)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingSpaceInput" }
+      responses:
+        "201": { description: "`data.space`" }
+        "422": { description: "Código repetido o zona de otro parqueadero (VALIDATION_FAILED)" }
+  /api/v1/parking-lots/{lot}/spaces/bulk:
+    parameters: [{ $ref: "#/components/parameters/Lot" }]
+    post:
+      tags: [Parqueaderos]
+      summary: Crear una numeración de espacios, todo o nada (parking.create)
+      description: Hasta 500 espacios por operación, por ejemplo prefijo `A-`, del 1 al 40, 2 dígitos → A-01 … A-40.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/ParkingSpaceAttributes"
+                - type: object
+                  required: [from, to]
+                  properties:
+                    prefix: { type: string, maxLength: 20 }
+                    from: { type: integer, minimum: 0 }
+                    to: { type: integer, minimum: 0 }
+                    padding: { type: integer, minimum: 0, maximum: 6 }
+      responses:
+        "201": { description: "`data.created` con el número de espacios creados" }
+        "422": { description: "Códigos existentes (`details.prefix`) o rango inválido (PARKING_RULE)" }
+  /api/v1/parking-lots/{lot}/spaces/{space}:
+    parameters:
+      - { $ref: "#/components/parameters/Lot" }
+      - { $ref: "#/components/parameters/Space" }
+    patch:
+      tags: [Parqueaderos]
+      summary: Actualizar código, tipo, zona y opciones (parking.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingSpaceInput" }
+      responses:
+        "200": { description: "`data.space`" }
+    delete:
+      tags: [Parqueaderos]
+      summary: Retirar un espacio que no esté ocupado ni reservado (parking.delete)
+      responses:
+        "200": { description: "Retirado" }
+        "422": { description: "Espacio en uso (SPACE_IN_USE)" }
+  /api/v1/parking-lots/{lot}/spaces/{space}/status:
+    parameters:
+      - { $ref: "#/components/parameters/Lot" }
+      - { $ref: "#/components/parameters/Space" }
+    post:
+      tags: [Parqueaderos]
+      summary: Cambio administrativo de estado (parking.update)
+      description: |
+        Solo entre disponible, bloqueado, mantenimiento y fuera de servicio, según la máquina
+        de estados. Ocupado y reservado cambian con sesiones y reservas. Repetir el estado actual
+        no cambia nada ni genera auditoría. `manual_transitions` del espacio lista los destinos válidos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { $ref: "#/components/schemas/SpaceStatus" }
+                reason: { type: string, maxLength: 200, nullable: true }
+      responses:
+        "200": { description: "`data.space`" }
+        "422": { description: "Transición no permitida (SPACE_TRANSITION_NOT_ALLOWED)" }
+  /api/v1/parking-lots/{lot}/gates:
+    parameters: [{ $ref: "#/components/parameters/Lot" }]
+    get:
+      tags: [Parqueaderos]
+      summary: Puertas del parqueadero (parking.view)
+      responses:
+        "200": { description: "`data.gates`" }
+    post:
+      tags: [Parqueaderos]
+      summary: Crear una puerta (parking.create)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingGateInput" }
+      responses:
+        "201": { description: "`data.gate`" }
+  /api/v1/parking-lots/{lot}/gates/{gate}:
+    parameters:
+      - { $ref: "#/components/parameters/Lot" }
+      - { name: gate, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    patch:
+      tags: [Parqueaderos]
+      summary: Actualizar una puerta (parking.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingGateInput" }
+      responses:
+        "200": { description: "`data.gate`" }
+    delete:
+      tags: [Parqueaderos]
+      summary: Eliminar una puerta sin dispositivos (parking.delete)
+      responses:
+        "200": { description: "Eliminada" }
+        "422": { description: "Tiene dispositivos (GATE_HAS_DEVICES)" }
+
+  /api/v1/devices:
+    get:
+      tags: [Dispositivos]
+      summary: Dispositivos de la empresa (devices.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: per_page, in: query, schema: { type: integer, default: 25, maximum: 100 } }
+        - { name: parking_lot_id, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/DeviceStatus" } }
+        - { name: type, in: query, schema: { $ref: "#/components/schemas/DeviceType" } }
+        - { name: search, in: query, description: "Nombre, código o serial", schema: { type: string } }
+      responses:
+        "200": { description: "`data.items`, `data.meta` y `data.status_counts` (conteo por estado, filtrado solo por parqueadero)" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Dispositivos]
+      summary: Registrar un dispositivo (devices.manage)
+      description: Queda en `unknown` hasta que Nuvora Edge lo reporte. No acepta credenciales.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeviceInput" }
+      responses:
+        "201": { description: "`data.device`" }
+        "422": { description: "Código repetido en la empresa, parqueadero ajeno o puerta de otro parqueadero" }
+  /api/v1/devices/{device}:
+    parameters: [{ $ref: "#/components/parameters/Device" }]
+    patch:
+      tags: [Dispositivos]
+      summary: Actualizar un dispositivo (devices.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeviceInput" }
+      responses:
+        "200": { description: "`data.device`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Dispositivos]
+      summary: Retirar un dispositivo del registro (devices.manage)
+      responses:
+        "200": { description: "Retirado" }
+  /api/v1/devices/{device}/status:
+    parameters: [{ $ref: "#/components/parameters/Device" }]
+    post:
+      tags: [Dispositivos]
+      summary: Entrar o salir de mantenimiento (devices.manage)
+      description: Online, offline y degraded los reporta Nuvora Edge. Salir de mantenimiento vuelve a `unknown`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [maintenance, unknown] }
+      responses:
+        "200": { description: "`data.device`" }
+        "422": { description: "Transición no permitida (DEVICE_TRANSITION_NOT_ALLOWED)" }
+
+  /api/v1/customers:
+    get:
+      tags: [Clientes]
+      summary: Clientes de la empresa (customers.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: per_page, in: query, schema: { type: integer, default: 25, maximum: 100 } }
+        - { name: type, in: query, schema: { $ref: "#/components/schemas/CustomerType" } }
+        - { name: status, in: query, schema: { type: string, enum: [active, inactive] } }
+        - { name: business_id, in: query, description: "Personas vinculadas a esa empresa", schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: organizations, in: query, description: "Solo empresas y corporativos", schema: { type: boolean } }
+        - { name: search, in: query, description: "Nombre, correo, teléfono o documento (sin importar puntos ni guiones)", schema: { type: string } }
+      responses:
+        "200": { description: "`data.items`, `data.meta` y `data.type_counts`" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Clientes]
+      summary: Crear un cliente (customers.create)
+      description: La auditoría registra qué datos de contacto se dieron, no su valor.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomerInput" }
+      responses:
+        "201": { description: "`data.customer`" }
+        "422": { description: "Documento repetido en la empresa, documento incompleto (INVALID_DOCUMENT) o empresa no válida en `business_id`" }
+  /api/v1/customers/{customer}:
+    parameters: [{ $ref: "#/components/parameters/Customer" }]
+    get:
+      tags: [Clientes]
+      summary: Detalle de un cliente (customers.view)
+      responses:
+        "200": { description: "`data.customer`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Clientes]
+      summary: Actualizar un cliente (customers.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomerInput" }
+      responses:
+        "200": { description: "`data.customer`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "Validación, o empresa con personas vinculadas que pasa a persona (CUSTOMER_HAS_MEMBERS)" }
+  /api/v1/customers/{customer}/status:
+    parameters: [{ $ref: "#/components/parameters/Customer" }]
+    post:
+      tags: [Clientes]
+      summary: Activar o inactivar un cliente (customers.update)
+      description: Un cliente inactivo conserva sus vínculos, pero no puede vincularse a nuevos vehículos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [active, inactive] }
+      responses:
+        "200": { description: "`data.customer`" }
+
+  /api/v1/vehicles:
+    get:
+      tags: [Vehículos]
+      summary: Vehículos de la empresa (vehicles.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: per_page, in: query, schema: { type: integer, default: 25, maximum: 100 } }
+        - { name: status, in: query, schema: { type: string, enum: [active, inactive, blocked] } }
+        - { name: type, in: query, schema: { $ref: "#/components/schemas/VehicleType" } }
+        - { name: customer_id, in: query, description: "Vehículos con un vínculo activo con ese cliente", schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: search, in: query, description: "Placa (se normaliza, abc-1 busca ABC1), marca, línea o color", schema: { type: string } }
+      responses:
+        "200": { description: "`data.items`, `data.meta` y `data.status_counts`" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Vehículos]
+      summary: Registrar un vehículo (vehicles.create)
+      description: Puede vincular el primer cliente en la misma transacción con `customer_id` y `relationship` (por defecto owner).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VehicleInput" }
+      responses:
+        "201": { description: "`data.vehicle`" }
+        "422": { description: "Placa repetida para ese país, placa inválida (INVALID_PLATE), país inválido (INVALID_COUNTRY) o cliente inactivo o ajeno" }
+  /api/v1/vehicles/plate-check:
+    get:
+      tags: [Vehículos]
+      summary: Normalizar una placa y saber si ya existe (vehicles.view)
+      parameters:
+        - { name: plate, in: query, required: true, schema: { type: string, maxLength: 20 } }
+        - { name: country, in: query, required: true, schema: { type: string, minLength: 2, maxLength: 2 } }
+      responses:
+        "200":
+          description: Placa canónica, formato del país y vehículo existente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plate: { type: string, example: ABC123 }
+                  country: { type: string, example: CO }
+                  format: { type: object, nullable: true, properties: { key: { type: string }, label: { type: string } } }
+                  rules_available: { type: boolean, description: "El país tiene formatos conocidos" }
+                  suggested_type: { allOf: [{ $ref: "#/components/schemas/VehicleType" }], nullable: true }
+                  existing: { type: object, nullable: true, properties: { id: { $ref: "#/components/schemas/Ulid" }, plate: { type: string }, status: { type: string } } }
+        "422": { description: "Placa inválida (INVALID_PLATE)" }
+  /api/v1/vehicles/{vehicle}:
+    parameters: [{ $ref: "#/components/parameters/Vehicle" }]
+    get:
+      tags: [Vehículos]
+      summary: Detalle de un vehículo con sus clientes vinculados (vehicles.view)
+      responses:
+        "200": { description: "`data.vehicle`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Vehículos]
+      summary: Actualizar o corregir la placa de un vehículo (vehicles.update)
+      description: Los vínculos con clientes no se cambian aquí; `customer_id` se ignora.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VehicleInput" }
+      responses:
+        "200": { description: "`data.vehicle`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/vehicles/{vehicle}/status:
+    parameters: [{ $ref: "#/components/parameters/Vehicle" }]
+    post:
+      tags: [Vehículos]
+      summary: Activar, inactivar o bloquear un vehículo (vehicles.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [active, inactive, blocked] }
+                reason: { type: string, maxLength: 255, nullable: true, description: "Obligatorio para blocked" }
+      responses:
+        "200": { description: "`data.vehicle`" }
+        "422": { description: "Bloqueo sin motivo" }
+  /api/v1/vehicles/{vehicle}/history:
+    parameters: [{ $ref: "#/components/parameters/Vehicle" }]
+    get:
+      tags: [Vehículos]
+      summary: Historial del vehículo, del más reciente al más antiguo (vehicles.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: per_page, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        "200": { description: "`data.items` (VehicleEvent) y `data.meta`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/vehicles/{vehicle}/customers:
+    parameters: [{ $ref: "#/components/parameters/Vehicle" }]
+    post:
+      tags: [Vehículos]
+      summary: Vincular un cliente, cambiar su relación o transferir la propiedad (vehicles.update)
+      description: |
+        Solo puede haber un propietario activo. Para reemplazarlo envía `transfer_ownership: true`;
+        el vínculo anterior se cierra y queda en el historial. Si el cliente ya está vinculado con
+        otra relación, se actualiza ese mismo vínculo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id, relationship]
+              properties:
+                customer_id: { $ref: "#/components/schemas/Ulid" }
+                relationship: { $ref: "#/components/schemas/VehicleRelationship" }
+                transfer_ownership: { type: boolean, default: false }
+      responses:
+        "201": { description: "`data.link`" }
+        "422": { description: "Ya tiene propietario (VEHICLE_HAS_OWNER), ya vinculado con esa relación (ALREADY_LINKED) o cliente inactivo o ajeno" }
+  /api/v1/vehicles/{vehicle}/customers/{link}:
+    parameters:
+      - { $ref: "#/components/parameters/Vehicle" }
+      - { name: link, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    delete:
+      tags: [Vehículos]
+      summary: Terminar un vínculo activo (vehicles.update)
+      description: El vínculo no se borra; se cierra con `ended_at`.
+      responses:
+        "200": { description: "Vínculo terminado" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
 components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: nuvora-session
+  parameters:
+    Page: { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+    Lot: { name: lot, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    Space: { name: space, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    Device: { name: device, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    Customer: { name: customer, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    Vehicle: { name: vehicle, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    Membership: { name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+  responses:
+    Unauthenticated:
+      description: No autenticado (UNAUTHENTICATED)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Forbidden:
+      description: Sin permiso (FORBIDDEN)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: No existe o pertenece a otra empresa (NOT_FOUND)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    TenantRequired:
+      description: No hay empresa activa (TENANT_REQUIRED)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    ValidationFailed:
+      description: Datos inválidos (VALIDATION_FAILED); `details` trae los mensajes por campo
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    TooManyAttempts:
+      description: Demasiados intentos (TOO_MANY_ATTEMPTS)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
   schemas:
+    Ulid: { type: string, pattern: "^[0-9a-hjkmnp-tv-z]{26}$", example: 01m5dtbyxqk1x864r4dt1g8k8x }
+    Envelope:
+      type: object
+      required: [success, data, request_id]
+      properties:
+        success: { type: boolean, enum: [true] }
+        data: {}
+        request_id: { type: string }
     Error:
       type: object
       required: [success, error, request_id]
@@ -83,3 +882,158 @@ components:
             message: { type: string }
             details: { type: object }
         request_id: { type: string }
+    PageMeta:
+      type: object
+      properties:
+        current_page: { type: integer }
+        last_page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
+    SpaceStatus: { type: string, enum: [available, occupied, reserved, blocked, maintenance, out_of_service] }
+    SpaceType: { type: string, enum: [car, motorcycle, truck, van, ev, disabled, vip, reserved] }
+    DeviceStatus: { type: string, enum: [online, offline, degraded, unknown, maintenance] }
+    DeviceType: { type: string, enum: [camera, barrier, ticket_printer, display, sensor, access_reader, payment_terminal, kiosk] }
+    Occupancy:
+      type: object
+      description: Capacidad excluye espacios fuera de servicio; `in_use` suma ocupados y reservados; `rate` es un porcentaje entero.
+      properties:
+        total: { type: integer }
+        capacity: { type: integer }
+        available: { type: integer }
+        in_use: { type: integer }
+        rate: { type: integer, minimum: 0, maximum: 100 }
+        by_status: { type: object, additionalProperties: { type: integer } }
+    OperatingHour:
+      type: object
+      required: [day_of_week, mode]
+      properties:
+        day_of_week: { type: integer, minimum: 1, maximum: 7, description: "1 = lunes" }
+        mode: { type: string, enum: [closed, open_24h, scheduled] }
+        opens_at: { type: string, example: "06:00", nullable: true }
+        closes_at: { type: string, example: "22:00", nullable: true }
+    ParkingLotInput:
+      type: object
+      required: [name, code, timezone, currency, grace_period_minutes, status]
+      properties:
+        name: { type: string, maxLength: 120 }
+        code: { type: string, maxLength: 40 }
+        description: { type: string, maxLength: 500, nullable: true }
+        address: { type: string, maxLength: 200, nullable: true }
+        city: { type: string, maxLength: 80, nullable: true }
+        latitude: { type: string, nullable: true, description: "Decimal entre -90 y 90; exige longitud" }
+        longitude: { type: string, nullable: true, description: "Decimal entre -180 y 180; exige latitud" }
+        timezone: { type: string, example: America/Bogota }
+        currency: { type: string, example: COP, pattern: "^[A-Za-z]{3}$" }
+        grace_period_minutes: { type: integer, minimum: 0, maximum: 240 }
+        status: { type: string, enum: [active, inactive, maintenance] }
+    ParkingLot:
+      allOf:
+        - $ref: "#/components/schemas/ParkingLotInput"
+        - type: object
+          properties:
+            id: { $ref: "#/components/schemas/Ulid" }
+            zones_count: { type: integer }
+            gates_count: { type: integer }
+            occupancy: { $ref: "#/components/schemas/Occupancy" }
+            operating_hours: { type: array, items: { $ref: "#/components/schemas/OperatingHour" } }
+    ParkingZoneInput:
+      type: object
+      required: [name, code, is_active]
+      properties:
+        name: { type: string, maxLength: 80 }
+        code: { type: string, maxLength: 40 }
+        description: { type: string, maxLength: 300, nullable: true }
+        is_active: { type: boolean }
+        sort_order: { type: integer, minimum: 0, maximum: 1000 }
+    ParkingSpaceAttributes:
+      type: object
+      required: [type, is_reservable, is_assignable]
+      properties:
+        zone_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+        type: { $ref: "#/components/schemas/SpaceType" }
+        floor: { type: string, maxLength: 20, nullable: true }
+        is_reservable: { type: boolean }
+        is_assignable: { type: boolean }
+    ParkingSpaceInput:
+      allOf:
+        - $ref: "#/components/schemas/ParkingSpaceAttributes"
+        - type: object
+          required: [code]
+          properties:
+            code: { type: string, maxLength: 40 }
+    ParkingSpace:
+      type: object
+      properties:
+        id: { $ref: "#/components/schemas/Ulid" }
+        code: { type: string }
+        type: { $ref: "#/components/schemas/SpaceType" }
+        status: { $ref: "#/components/schemas/SpaceStatus" }
+        floor: { type: string, nullable: true }
+        is_reservable: { type: boolean }
+        is_assignable: { type: boolean }
+        zone: { type: object, nullable: true }
+        status_changed_at: { type: string, format: date-time, nullable: true }
+        manual_transitions: { type: array, items: { $ref: "#/components/schemas/SpaceStatus" } }
+        removable: { type: boolean }
+    ParkingGateInput:
+      type: object
+      required: [name, code, direction, status]
+      properties:
+        name: { type: string, maxLength: 80 }
+        code: { type: string, maxLength: 40 }
+        direction: { type: string, enum: [entry, exit, bidirectional] }
+        status: { type: string, enum: [active, inactive, maintenance] }
+    DeviceInput:
+      type: object
+      required: [parking_lot_id, name, code, type]
+      properties:
+        parking_lot_id: { $ref: "#/components/schemas/Ulid" }
+        gate_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+        name: { type: string, maxLength: 80 }
+        code: { type: string, maxLength: 40, description: "Único por empresa; Nuvora Edge reporta con este código" }
+        type: { $ref: "#/components/schemas/DeviceType" }
+        vendor: { type: string, maxLength: 80, nullable: true }
+        model: { type: string, maxLength: 80, nullable: true }
+        serial_number: { type: string, maxLength: 80, nullable: true }
+        ip_address: { type: string, nullable: true }
+        firmware_version: { type: string, maxLength: 40, nullable: true }
+    CustomerType: { type: string, enum: [individual, business, corporate] }
+    CustomerInput:
+      type: object
+      required: [type, name]
+      properties:
+        type: { $ref: "#/components/schemas/CustomerType" }
+        name: { type: string, minLength: 2, maxLength: 120 }
+        document_type: { type: string, maxLength: 20, nullable: true, description: "Código definido por la empresa (CC, NIT, PAS...)" }
+        document_number: { type: string, maxLength: 40, nullable: true, description: "Único por empresa y tipo, sin importar puntos ni guiones" }
+        email: { type: string, format: email, nullable: true }
+        phone: { type: string, maxLength: 40, nullable: true }
+        business_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Solo personas; debe ser una empresa o corporativo" }
+        notes: { type: string, maxLength: 1000, nullable: true }
+    VehicleType: { type: string, enum: [car, motorcycle, bicycle, van, truck, bus, other] }
+    VehicleRelationship: { type: string, enum: [owner, driver, authorized] }
+    VehicleInput:
+      type: object
+      required: [plate, country, type]
+      properties:
+        plate: { type: string, maxLength: 20, description: "Se guarda en mayúsculas sin separadores" }
+        country: { type: string, minLength: 2, maxLength: 2, description: "ISO 3166-1 alfa-2" }
+        type: { $ref: "#/components/schemas/VehicleType" }
+        brand: { type: string, maxLength: 60, nullable: true }
+        model: { type: string, maxLength: 60, nullable: true }
+        color: { type: string, maxLength: 40, nullable: true }
+        year: { type: integer, minimum: 1900, nullable: true }
+        is_electric: { type: boolean, default: false }
+        notes: { type: string, maxLength: 1000, nullable: true }
+        customer_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Solo al registrar" }
+        relationship: { $ref: "#/components/schemas/VehicleRelationship" }
+    VehicleEvent:
+      type: object
+      properties:
+        id: { $ref: "#/components/schemas/Ulid" }
+        type: { type: string, enum: [registered, updated, plate_changed, status_changed, customer_linked, relationship_changed, customer_unlinked] }
+        data: { type: object, additionalProperties: true }
+        actor: { type: object, nullable: true, properties: { id: { type: string }, name: { type: string } } }
+        occurred_at: { type: string, format: date-time }
+security:
+  - session: []
