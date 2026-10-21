@@ -2,31 +2,41 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
 
+declare module 'vue-router' {
+  interface RouteMeta {
+    guest?: boolean
+    requiresAuth?: boolean
+    title?: string
+  }
+}
+
 export const router = createRouter({
   history: createWebHistory(),
+  scrollBehavior: () => ({ top: 0 }),
   routes: [
     {
       path: '/login',
       name: 'login',
       component: () => import('@/modules/auth/LoginView.vue'),
-      meta: { guest: true },
+      meta: { guest: true, title: 'Iniciar sesión' },
     },
     {
       path: '/registro',
       name: 'register',
       component: () => import('@/modules/auth/RegisterView.vue'),
-      meta: { guest: true },
+      meta: { guest: true, title: 'Crear cuenta' },
     },
     {
       path: '/recuperar-contrasena',
       name: 'forgot-password',
       component: () => import('@/modules/auth/ForgotPasswordView.vue'),
-      meta: { guest: true },
+      meta: { guest: true, title: 'Recuperar contraseña' },
     },
     {
       path: '/restablecer-contrasena',
       name: 'reset-password',
       component: () => import('@/modules/auth/ResetPasswordView.vue'),
+      meta: { title: 'Restablecer contraseña' },
     },
     {
       path: '/',
@@ -37,23 +47,82 @@ export const router = createRouter({
           path: '',
           name: 'dashboard',
           component: () => import('@/modules/dashboard/DashboardView.vue'),
+          meta: { title: 'Panel de operación' },
+        },
+        {
+          path: 'parqueaderos',
+          name: 'parking-lots',
+          component: () => import('@/modules/parking/ParkingLotsView.vue'),
+          meta: { title: 'Parqueaderos' },
+        },
+        {
+          path: 'parqueaderos/:lotId',
+          name: 'parking-lot',
+          component: () => import('@/modules/parking/ParkingLotDetailView.vue'),
+          props: true,
+          meta: { title: 'Parqueadero' },
+        },
+        {
+          path: 'dispositivos',
+          name: 'devices',
+          component: () => import('@/modules/devices/DevicesView.vue'),
+          meta: { title: 'Dispositivos' },
+        },
+        {
+          path: 'clientes',
+          name: 'customers',
+          component: () => import('@/modules/customers/CustomersView.vue'),
+          meta: { title: 'Clientes' },
+        },
+        {
+          path: 'clientes/:customerId',
+          name: 'customer',
+          component: () => import('@/modules/customers/CustomerDetailView.vue'),
+          props: true,
+          meta: { title: 'Cliente' },
+        },
+        {
+          path: 'vehiculos',
+          name: 'vehicles',
+          component: () => import('@/modules/vehicles/VehiclesView.vue'),
+          meta: { title: 'Vehículos' },
+        },
+        {
+          path: 'vehiculos/:vehicleId',
+          name: 'vehicle',
+          component: () => import('@/modules/vehicles/VehicleDetailView.vue'),
+          props: true,
+          meta: { title: 'Vehículo' },
         },
         {
           path: 'empresa',
           name: 'tenant',
           component: () => import('@/modules/tenancy/TenantView.vue'),
+          meta: { title: 'Empresa' },
         },
         {
           path: 'miembros',
           name: 'members',
           component: () => import('@/modules/tenancy/MembersView.vue'),
+          meta: { title: 'Miembros' },
+        },
+        {
+          path: 'roles',
+          name: 'roles',
+          component: () => import('@/modules/tenancy/RolesView.vue'),
+          meta: { title: 'Roles y permisos' },
         },
         {
           path: 'auditoria',
           name: 'audit',
           component: () => import('@/modules/audit/AuditView.vue'),
+          meta: { title: 'Auditoría' },
         },
       ],
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      redirect: { name: 'dashboard' },
     },
   ],
 })
@@ -77,4 +146,8 @@ router.beforeEach(async (to) => {
   }
 
   return true
+})
+
+router.afterEach((to) => {
+  document.title = to.meta.title ? `${to.meta.title} · Nuvora` : 'Nuvora'
 })
