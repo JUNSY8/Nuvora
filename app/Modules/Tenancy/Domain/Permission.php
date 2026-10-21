@@ -28,6 +28,16 @@ final class Permission
 
     public const PARKING_DELETE = 'parking.delete';
 
+    public const DEVICES_VIEW = 'devices.view';
+
+    public const DEVICES_MANAGE = 'devices.manage';
+
+    public const CUSTOMERS_VIEW = 'customers.view';
+
+    public const CUSTOMERS_CREATE = 'customers.create';
+
+    public const CUSTOMERS_UPDATE = 'customers.update';
+
     public const VEHICLES_VIEW = 'vehicles.view';
 
     public const VEHICLES_CREATE = 'vehicles.create';
@@ -63,6 +73,11 @@ final class Permission
             self::PARKING_CREATE,
             self::PARKING_UPDATE,
             self::PARKING_DELETE,
+            self::DEVICES_VIEW,
+            self::DEVICES_MANAGE,
+            self::CUSTOMERS_VIEW,
+            self::CUSTOMERS_CREATE,
+            self::CUSTOMERS_UPDATE,
             self::VEHICLES_VIEW,
             self::VEHICLES_CREATE,
             self::VEHICLES_UPDATE,

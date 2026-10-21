@@ -4,14 +4,18 @@ declare(strict_types=1);
 
 namespace App\Modules\Shared\Presentation\Http;
 
+use App\Modules\Customers\Domain\CustomerRuleViolation;
+use App\Modules\Devices\Domain\DeviceRuleViolation;
 use App\Modules\Identity\Domain\EmailNotVerified;
 use App\Modules\Identity\Domain\InvalidCredentials;
 use App\Modules\Identity\Domain\PasswordResetThrottled;
+use App\Modules\Parking\Domain\ParkingRuleViolation;
 use App\Modules\Shared\Presentation\Http\Responses\ApiResponse;
 use App\Modules\Tenancy\Domain\MembershipRuleViolation;
 use App\Modules\Tenancy\Domain\PermissionDenied;
 use App\Modules\Tenancy\Domain\TenantContextMissing;
 use App\Modules\Tenancy\Domain\TenantNotAccessible;
+use App\Modules\Vehicles\Domain\VehicleRuleViolation;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -139,6 +143,19 @@ final class ApiExceptionRenderer
 
             return ApiResponse::error(
                 code: 'MEMBERSHIP_RULE',
+                message: $exception->getMessage(),
+                status: 422,
+                request: $request,
+            );
+        });
+
+        $exceptions->render(function (ParkingRuleViolation|DeviceRuleViolation|CustomerRuleViolation|VehicleRuleViolation $exception, Request $request) {
+            if (! self::wantsJson($request)) {
+                return null;
+            }
+
+            return ApiResponse::error(
+                code: $exception->errorCode,
                 message: $exception->getMessage(),
                 status: 422,
                 request: $request,
