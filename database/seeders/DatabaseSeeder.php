@@ -19,10 +19,24 @@ use App\Modules\Parking\Application\SaveParkingGate;
 use App\Modules\Parking\Domain\GateDirection;
 use App\Modules\Parking\Domain\GateStatus;
 use App\Modules\Parking\Domain\ParkingLotStatus;
+use App\Modules\Parking\Domain\ParkingRuleViolation;
 use App\Modules\Parking\Domain\SpaceStatus;
 use App\Modules\Parking\Domain\SpaceType;
+use App\Modules\Parking\Infrastructure\Persistence\ParkingGate;
 use App\Modules\Parking\Infrastructure\Persistence\ParkingLot;
 use App\Modules\Parking\Infrastructure\Persistence\ParkingSpace;
+use App\Modules\ParkingSessions\Application\EntryData;
+use App\Modules\ParkingSessions\Application\RegisterEntry;
+use App\Modules\ParkingSessions\Application\RegisterExit;
+use App\Modules\ParkingSessions\Domain\SessionRuleViolation;
+use App\Modules\ParkingSessions\Infrastructure\Persistence\ParkingSession;
+use App\Modules\Tariffs\Application\CreateTariff;
+use App\Modules\Tariffs\Application\DiscountData;
+use App\Modules\Tariffs\Application\SaveDiscount;
+use App\Modules\Tariffs\Application\TariffData;
+use App\Modules\Tariffs\Domain\DiscountApplication;
+use App\Modules\Tariffs\Domain\DiscountType;
+use App\Modules\Tariffs\Infrastructure\Persistence\Tariff;
 use App\Modules\Tenancy\Application\CreateTenant;
 use App\Modules\Tenancy\Infrastructure\Persistence\TenantMembership;
 use App\Modules\Vehicles\Application\ChangeVehicleStatus;
@@ -63,6 +77,122 @@ class DatabaseSeeder extends Seeder
         $membership = TenantMembership::query()->where('user_id', $user->id)->firstOrFail();
         $this->seedParking((string) $user->id, (string) $membership->tenant_id);
         $this->seedCustomers((string) $user->id, (string) $membership->tenant_id);
+        $this->seedTariffs((string) $user->id, (string) $membership->tenant_id);
+        $this->seedSessions((string) $user->id, (string) $membership->tenant_id);
+    }
+
+    /**
+     * Tariffs of the demo lot, in COP minor units (100 = $1). The night
+     * tariff only covers cars and vans, so motorcycles keep their own price.
+     */
+    private function seedTariffs(string $actorId, string $tenantId): void
+    {
+        $lot = ParkingLot::query()->where('tenant_id', $tenantId)->where('code', 'CENTRO')->first();
+
+        if ($lot === null || Tariff::query()->where('tenant_id', $tenantId)->exists()) {
+            return;
+        }
+
+        $tariff = fn (string $code, string $name, array $vehicles, array $windows, array $brackets, int $stepMinutes, int $stepPesos, ?int $dailyMaxPesos) => app(CreateTariff::class)
+            ->handle($actorId, $tenantId, (string) $lot->id, new TariffData(
+                code: $code,
+                name: $name,
+                priority: 0,
+                vehicleTypes: $vehicles,
+                zoneId: null,
+                windows: $windows,
+                graceMinutes: null,
+                brackets: array_map(fn (array $bracket): array => ['up_to_minutes' => $bracket[0], 'amount' => $bracket[1] * 100], $brackets),
+                stepMinutes: $stepMinutes,
+                stepAmount: $stepPesos * 100,
+                dailyMaxAmount: $dailyMaxPesos === null ? null : $dailyMaxPesos * 100,
+                changeNote: 'Tarifa inicial de demostración.',
+            ));
+
+        $tariff('GENERAL', 'Carros por fracción', [], [], [[30, 3000], [60, 5000]], 15, 1200, 38000);
+        $tariff('MOTOS', 'Motos y bicicletas', [VehicleType::Motorcycle, VehicleType::Bicycle], [], [], 30, 800, 12000);
+        $tariff('PESADOS', 'Camiones y buses', [VehicleType::Truck, VehicleType::Bus], [], [], 60, 7000, 60000);
+        $tariff('NOCHE', 'Noche plana', [VehicleType::Car, VehicleType::Van], [['days' => [1, 2, 3, 4, 5, 6, 7], 'start' => '19:00', 'end' => '06:00']], [[720, 12000]], 60, 4000, 38000);
+
+        $discount = fn (string $code, string $name, DiscountType $type, int $value, DiscountApplication $application, array $vehicles = [], array $days = []) => app(SaveDiscount::class)
+            ->handle($actorId, $tenantId, null, new DiscountData(
+                lotId: null,
+                code: $code,
+                name: $name,
+                type: $type,
+                value: $value,
+                currency: null,
+                application: $application,
+                vehicleTypes: $vehicles,
+                days: $days,
+                validFrom: null,
+                validUntil: null,
+            ));
+
+        $discount('CINE', 'Convenio cine (2 h gratis)', DiscountType::FreeMinutes, 120, DiscountApplication::Manual);
+        $discount('CORTESIA', 'Cortesía de gerencia', DiscountType::Percentage, 10000, DiscountApplication::Manual);
+        $discount('LUNES-MOTOS', 'Lunes de motos', DiscountType::Percentage, 2000, DiscountApplication::Automatic, [VehicleType::Motorcycle], [1]);
+    }
+
+    /**
+     * Occupied spaces come from real sessions, so they can be released with
+     * an exit. Entry times are moved back to make the demo durations varied.
+     */
+    private function seedSessions(string $actorId, string $tenantId): void
+    {
+        $lot = ParkingLot::query()->where('tenant_id', $tenantId)->where('code', 'CENTRO')->first();
+
+        if ($lot === null || ParkingSession::query()->where('tenant_id', $tenantId)->exists()) {
+            return;
+        }
+
+        $lotId = (string) $lot->id;
+        $spaces = ParkingSpace::query()->where('parking_lot_id', $lotId)->pluck('id', 'code');
+        $entryGate = (string) ParkingGate::query()->where('parking_lot_id', $lotId)->where('code', 'IN-01')->value('id');
+        $exitGate = (string) ParkingGate::query()->where('parking_lot_id', $lotId)->where('code', 'OUT-01')->value('id');
+
+        // A space the developer took out of service is skipped instead of aborting the seed.
+        $enter = function (string $plate, ?VehicleType $type, ?string $spaceCode, int $minutesAgo) use ($actorId, $tenantId, $lotId, $spaces, $entryGate): ?string {
+            if ($spaceCode !== null && ! isset($spaces[$spaceCode])) {
+                return null;
+            }
+
+            try {
+                $session = app(RegisterEntry::class)->handle($actorId, $tenantId, new EntryData(
+                    lotId: $lotId,
+                    plate: $plate,
+                    country: 'CO',
+                    vehicleType: $type,
+                    spaceId: $spaceCode === null ? null : (string) $spaces[$spaceCode],
+                    autoAssign: false,
+                    gateId: $entryGate,
+                    notes: null,
+                    idempotencyKey: null,
+                ))->session;
+            } catch (ParkingRuleViolation|SessionRuleViolation) {
+                return null;
+            }
+
+            $session->forceFill(['entry_at' => now()->subMinutes($minutesAgo)])->save();
+
+            return (string) $session->id;
+        };
+
+        $enter('KXY482', null, 'A-03', 185);
+        $enter('TAN301', null, 'A-04', 47);
+        $enter('JKL321', VehicleType::Car, 'A-07', 12);
+        $enter('GHT555', null, 'A-12', 320);
+        $enter('XYZ789', VehicleType::Car, 'A-15', 1560);
+        $enter('LMN27F', null, 'M-02', 95);
+        $enter('BCD12E', VehicleType::Motorcycle, 'M-05', 33);
+        $enter('SAB910', null, 'E-01', 64);
+        $enter('VIS404', VehicleType::Car, null, 8);
+
+        $visit = $enter('RTA118', VehicleType::Car, 'A-01', 140);
+
+        if ($visit !== null) {
+            app(RegisterExit::class)->handle($actorId, $tenantId, $visit, $exitGate, null, null);
+        }
     }
 
     private function seedCustomers(string $actorId, string $tenantId): void
@@ -141,9 +271,6 @@ class DatabaseSeeder extends Seeder
             );
         }
 
-        // Sessions arrive in 0.5; a few occupied spaces make the demo map realistic.
-        ParkingSpace::query()->where('parking_lot_id', $lotId)->whereIn('code', ['A-03', 'A-04', 'A-07', 'A-12', 'A-15', 'M-02', 'M-05', 'E-01'])
-            ->update(['status' => SpaceStatus::Occupied->value]);
         ParkingSpace::query()->where('parking_lot_id', $lotId)->whereIn('code', ['A-20'])
             ->update(['status' => SpaceStatus::Maintenance->value]);
 
