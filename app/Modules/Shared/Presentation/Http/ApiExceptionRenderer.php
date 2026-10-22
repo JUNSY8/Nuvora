@@ -11,6 +11,7 @@ use App\Modules\Identity\Domain\InvalidCredentials;
 use App\Modules\Identity\Domain\PasswordResetThrottled;
 use App\Modules\Parking\Domain\ParkingRuleViolation;
 use App\Modules\ParkingSessions\Domain\SessionRuleViolation;
+use App\Modules\Reservations\Domain\ReservationRuleViolation;
 use App\Modules\Shared\Presentation\Http\Responses\ApiResponse;
 use App\Modules\Tariffs\Domain\TariffRuleViolation;
 use App\Modules\Tenancy\Domain\MembershipRuleViolation;
@@ -164,7 +165,7 @@ final class ApiExceptionRenderer
             );
         });
 
-        $exceptions->render(function (SessionRuleViolation|TariffRuleViolation $exception, Request $request) {
+        $exceptions->render(function (SessionRuleViolation|TariffRuleViolation|ReservationRuleViolation $exception, Request $request) {
             if (! self::wantsJson($request)) {
                 return null;
             }

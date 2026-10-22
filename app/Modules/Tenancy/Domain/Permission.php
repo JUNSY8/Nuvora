@@ -58,6 +58,10 @@ final class Permission
 
     public const TARIFFS_MANAGE = 'tariffs.manage';
 
+    public const RESERVATIONS_VIEW = 'reservations.view';
+
+    public const RESERVATIONS_MANAGE = 'reservations.manage';
+
     public const PAYMENTS_VIEW = 'payments.view';
 
     public const PAYMENTS_CREATE = 'payments.create';
@@ -98,6 +102,8 @@ final class Permission
             self::SESSIONS_DISCOUNT,
             self::TARIFFS_VIEW,
             self::TARIFFS_MANAGE,
+            self::RESERVATIONS_VIEW,
+            self::RESERVATIONS_MANAGE,
             self::PAYMENTS_VIEW,
             self::PAYMENTS_CREATE,
             self::PAYMENTS_REFUND,
