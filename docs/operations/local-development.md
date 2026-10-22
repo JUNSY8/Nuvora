@@ -1,6 +1,6 @@
 # Desarrollo local
 
-Nuvora Cloud se ejecuta como monolito modular. La especificación de producto sigue en el `README.md` de la raíz. Este documento solo describe cómo levantar la versión 0.3.
+Nuvora Cloud se ejecuta como monolito modular. La especificación de producto sigue en el `README.md` de la raíz. Este documento solo describe cómo levantar la versión 0.5.
 
 ## Requisitos
 
@@ -20,7 +20,7 @@ docker compose exec app php artisan migrate --seed
 
 La interfaz queda en `http://localhost:5173` y la API en `http://localhost:8080`. Mailpit queda en `http://localhost:8025`.
 
-La cuenta de desarrollo que crea el seeder, solo con `APP_ENV=local`, es `admin@nuvora.test` con la contraseña `password`. Esa cuenta queda verificada y como propietaria de la empresa `Nuvora Demo`, con el parqueadero `Sede Centro` (4 zonas, 74 espacios, 2 puertas y 5 dispositivos), 6 clientes (personas, una empresa y un corporativo) y 7 vehículos, uno de ellos bloqueado.
+La cuenta de desarrollo que crea el seeder, solo con `APP_ENV=local`, es `admin@nuvora.test` con la contraseña `password`. Esa cuenta queda verificada y como propietaria de la empresa `Nuvora Demo`, con el parqueadero `Sede Centro` (4 zonas, 74 espacios, 2 puertas y 5 dispositivos), 6 clientes (personas, una empresa y un corporativo), 7 vehículos (uno bloqueado) y 9 vehículos dentro del parqueadero, uno de ellos sin espacio asignado. Los espacios ocupados vienen de sesiones reales, así que se liberan registrando la salida en `Entradas y salidas`. Si un espacio de la demo está fuera de servicio, el seeder omite esa entrada.
 
 El servicio `frontend` vigila los archivos por sondeo (`VITE_USE_POLLING`), porque el volumen montado desde Windows o macOS no avisa los cambios dentro del contenedor. No ejecutes otro `vite` en el host en el puerto 5173: el navegador puede terminar en cualquiera de los dos. `FRONTEND_URL` apunta a la interfaz que recibe los enlaces de restablecimiento; la verificación de correo llega a la API y redirige a esa interfaz.
 

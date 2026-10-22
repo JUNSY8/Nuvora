@@ -3409,6 +3409,10 @@ Implemented in the codebase: users, session authentication, email verification, 
 
 Review during 0.3: the OpenAPI contract only described health and login; it now documents every 0.2 endpoint. The API supports changing a member's roles and creating custom roles, but the interface only adds and suspends members; role management screens are pending.
 
+Review during 0.5: the roles screen and role changes on members are now in the interface. Sessions add `sessions.view` and `sessions.cancel` to the catalog.
+
+Review during 0.6: pricing adds `tariffs.view`, `tariffs.manage` and `sessions.discount`, backfilled to existing system roles. Row level security is enabled on every tenant table, but the local PostgreSQL role is a superuser and owns the tables, so the policies do not apply to the application connection (see ADR-012). Before production the application must connect with a role without `BYPASSRLS` that does not own the tables, or the tables need `FORCE ROW LEVEL SECURITY`.
+
 ---
 
 
@@ -3452,6 +3456,10 @@ Operations dashboard, space map and device screens
 ```
 
 Occupied and reserved states are reserved for parking sessions (0.5) and reservations (0.7). Device connectivity (online, offline, degraded) arrives with Edge heartbeats (0.13). See ADR-013.
+
+Review during 0.5: deleting a space did not translate foreign key errors, so a space referenced by sessions would have answered 500; it now answers `SPACE_HAS_HISTORY`. A gate referenced by sessions answers `GATE_IN_USE` (formerly `GATE_HAS_DEVICES`). The demo seeder marked spaces as occupied without sessions; occupation now comes from real sessions, and the 0.5 migration frees the spaces left occupied.
+
+Review during 0.6: a lot could change its currency at any time, which would silently change the meaning of every amount priced in it. A lot with tariffs now refuses the change (`CURRENCY_IN_USE`), enforced by a composite foreign key. A zone used by a tariff answers `ZONE_IN_USE` instead of the misleading "has spaces" message.
 
 ---
 
@@ -3497,6 +3505,8 @@ Customer directory, customer profile, vehicle list and vehicle detail screens
 
 Customers are deactivated, not deleted; erasure or anonymization on request (habeas data) is pending before production. Sessions (0.5), reservations (0.7) and LPR reads (0.14) will append to the vehicle history. See ADR-014.
 
+Review during 0.5: entries, exits and cancellations now append to the vehicle history, and a visitor registered at the gate is marked as such.
+
 ---
 
 
@@ -3520,6 +3530,31 @@ Realtime updates
 Deliverable:
 
 A complete manually operated parking system.
+
+Status:
+
+Implemented in the codebase:
+
+```text
+Manual entry by plate: known vehicles are identified, unknown plates are registered as visitors
+Blocked vehicles are denied; a vehicle cannot be inside the same lot twice
+Automatic space assignment by vehicle type (EV first for electric cars), manual choice, or entry without space
+Exit with stay duration in started minutes; the space is freed in the same transaction
+Session lifecycle: open, closed, cancelled (with mandatory reason and its own permission)
+Space reassignment of an open session
+Idempotency-Key on entry and exit; retries return the original session
+Partial unique indexes: one open session per vehicle and lot, one per space
+Operations summary per lot in local time: occupancy, vehicles inside, entries, exits, average stay
+Session history with filters by lot, status, plate and local day
+Entries, exits and cancellations in the vehicle history; every operation audited
+sessions.view / sessions.cancel, backfilled to existing system roles
+Operator screen (entry form, vehicles inside, exit, move, cancel) and history screen
+Live updates by polling change markers (GET /api/v1/live); the dashboard refreshes too
+```
+
+Charging at exit arrives with pricing (0.6) and payments (0.9). Live updates use polling instead of Reverb, which would have forced a downgrade of `guzzlehttp/psr7`; the transport can change without touching the use cases. See ADR-015.
+
+Review during 0.6: the exit now prices the stay and stores the charge. SQLite (used by CI) rebuilds a table to add columns with foreign keys and recreates partial indexes without their `WHERE`; the 0.6 migration restores the open-session indexes explicitly, otherwise a space could hold only one session in its whole history on SQLite. PostgreSQL was not affected.
 
 ---
 
@@ -3547,6 +3582,31 @@ Pricing history
 Deliverable:
 
 Configurable commercial pricing engine.
+
+Status:
+
+Implemented in the codebase:
+
+```text
+Tariffs per lot in the lot's currency, stored as integer minor units (5.000 COP = 500000)
+One rate shape: cumulative brackets, a started step after them and an optional cap per 24 h
+Hourly, fractional, daily, progressive and bracket prices are configurations of that shape
+Filters by vehicle type, zone and weekly entry windows in local time (night, weekends)
+Selection by priority, then specificity (zone, window, vehicle), then code: deterministic
+Grace period from the lot, overridable per tariff; a stay within grace is free
+Manual discounts chosen at the exit (percentage, fixed amount, free minutes) with sessions.discount
+Automatic promotions by local date and weekday of the exit; discounts never stack
+Immutable versions: every change publishes a new one; stays use the version in force at entry
+The exit stores tariff, version, discount, charged minutes, subtotal, discount, total and the explanation
+Exits without an applicable tariff are still registered, flagged as unpriced
+Quote of an open stay, simulator with past and future dates, version history with author and note
+Charged and unpriced exits in the operations summary; charge in the session history and vehicle timeline
+tariffs.view / tariffs.manage / sessions.discount, backfilled to existing system roles
+Composite tenant foreign keys, CHECK constraints and row level security on every new table
+Tariffs screen (tariffs, discounts and promotions, simulator), exit dialog with price and discount
+```
+
+Holidays and calendars, membership and reservation pricing, taxes and collecting the charge arrive with their versions (0.7, 0.8, 0.9, 0.11). See ADR-016.
 
 ---
 
