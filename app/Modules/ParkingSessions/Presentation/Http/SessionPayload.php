@@ -42,6 +42,7 @@ final class SessionPayload
             'cancel_reason' => $session->cancel_reason,
             'notes' => $session->notes,
             'charge' => self::charge($session),
+            'reservation' => $session->reservation_id === null ? null : ($refs->reservations[(string) $session->reservation_id] ?? null),
         ];
     }
 

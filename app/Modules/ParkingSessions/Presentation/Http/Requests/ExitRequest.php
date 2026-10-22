@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\ParkingSessions\Presentation\Http\Requests;
 
+use App\Modules\Shared\Presentation\Http\Concerns\ReadsIdempotencyKey;
 use Illuminate\Foundation\Http\FormRequest;
 
 final class ExitRequest extends FormRequest

@@ -9,11 +9,14 @@ use App\Modules\Parking\Application\ParkingInfrastructureDirectory;
 use App\Modules\Parking\Application\ParkingSpaceAllocator;
 use App\Modules\Parking\Domain\GateDirection;
 use App\Modules\Parking\Domain\ParkingLotStatus;
+use App\Modules\Parking\Domain\ParkingRuleViolation;
+use App\Modules\Parking\Domain\SpaceCompatibility;
+use App\Modules\Parking\Domain\SpaceType;
 use App\Modules\ParkingSessions\Domain\SessionRuleViolation;
 use App\Modules\ParkingSessions\Domain\SessionSource;
 use App\Modules\ParkingSessions\Domain\SessionStatus;
-use App\Modules\ParkingSessions\Domain\SpaceCompatibility;
 use App\Modules\ParkingSessions\Infrastructure\Persistence\ParkingSession;
+use App\Modules\Reservations\Application\ReservationDirectory;
 use App\Modules\Shared\Infrastructure\Realtime\LiveUpdates;
 use App\Modules\Tenancy\Application\TenantAuthorizer;
 use App\Modules\Tenancy\Domain\Permission;
@@ -21,13 +24,15 @@ use App\Modules\Vehicles\Application\VehicleDirectory;
 use App\Modules\Vehicles\Domain\Plate;
 use App\Modules\Vehicles\Domain\VehicleEventType;
 use App\Modules\Vehicles\Domain\VehicleStatus;
+use App\Modules\Vehicles\Domain\VehicleType;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Manual entry: identify the vehicle, check that it may enter, hold a space
- * and open the session in one transaction. The partial unique indexes on
+ * Manual entry: identify the vehicle, check that it may enter, check in its
+ * reservation if it has one, hold a space and open the session in one
+ * transaction. The partial unique indexes on
  * open sessions decide races between operators; an Idempotency-Key makes a
  * retried request return the session it already created.
  */
@@ -39,6 +44,7 @@ final class RegisterEntry
         private readonly ParkingSpaceAllocator $spaces,
         private readonly VehicleDirectory $vehicles,
         private readonly GateCheck $gates,
+        private readonly ReservationDirectory $reservations,
         private readonly SessionLookup $lookup,
         private readonly RecordAuditEvent $audit,
         private readonly LiveUpdates $live,
@@ -83,6 +89,7 @@ final class RegisterEntry
                 'plate' => $session->plate,
                 'space_code' => $session->space_code,
                 'entry_gate_id' => $session->entry_gate_id,
+                'reservation_id' => $session->reservation_id,
             ],
         );
 
@@ -114,21 +121,9 @@ final class RegisterEntry
             throw new SessionRuleViolation("El vehículo {$vehicle['plate']} ya está dentro{$where}. Registra su salida primero.", 'VEHICLE_ALREADY_INSIDE');
         }
 
-        $space = null;
-
-        if ($data->spaceId !== null) {
-            $space = $this->spaces->occupy($tenantId, $lotId, $data->spaceId);
-
-            if (! SpaceCompatibility::accepts($space['type'], $vehicle['type'])) {
-                throw new SessionRuleViolation("El espacio {$space['code']} no admite este tipo de vehículo.", 'SPACE_INCOMPATIBLE');
-            }
-        } elseif ($data->autoAssign) {
-            $space = $this->spaces->occupyFirstAvailable($tenantId, $lotId, SpaceCompatibility::preferred($vehicle['type'], $vehicle['is_electric']));
-
-            if ($space === null) {
-                throw new SessionRuleViolation('No hay espacios disponibles para este tipo de vehículo. Elige uno a mano o registra la entrada sin espacio.', 'NO_SPACE_AVAILABLE');
-            }
-        }
+        $now = now()->toImmutable();
+        $reservation = $this->reservations->arrival($tenantId, $lotId, $vehicle['id'], $now);
+        $space = $this->chooseSpace($tenantId, $lotId, $data, $vehicle, $reservation);
 
         $session = ParkingSession::query()->create([
             'tenant_id' => $tenantId,
@@ -147,15 +142,68 @@ final class RegisterEntry
             'opened_by' => $actorUserId,
             'entry_idempotency_key' => $data->idempotencyKey,
             'notes' => $data->notes,
+            'reservation_id' => $reservation['id'] ?? null,
         ]);
+
+        if ($reservation !== null) {
+            $this->reservations->checkIn($tenantId, $reservation['id'], $actorUserId, $now);
+        }
 
         $this->vehicles->recordStayEvent($tenantId, $vehicle['id'], VehicleEventType::Entered, $actorUserId, [
             'session_id' => (string) $session->id,
             'parking_lot_id' => $lotId,
             'space_code' => $session->space_code,
+            'reservation_code' => $reservation['code'] ?? null,
         ]);
 
         return $session;
+    }
+
+    /**
+     * An operator's choice wins. A reservation for a space takes that space
+     * (held for it) or, if a walk-in occupies it, another in its zone; a
+     * reservation for a zone takes a space of that zone. Arrivals with a
+     * reservation use reservable spaces first; walk-ins use them last.
+     *
+     * @param  array{type: VehicleType, is_electric: bool}  $vehicle
+     * @param  array{id: string, code: string, zone_id: string|null, space_id: string|null, space_code: string|null}|null  $reservation
+     * @return array{id: string, code: string, type: SpaceType}|null
+     */
+    private function chooseSpace(string $tenantId, string $lotId, EntryData $data, array $vehicle, ?array $reservation): ?array
+    {
+        if ($data->spaceId !== null) {
+            $space = $this->spaces->occupy($tenantId, $lotId, $data->spaceId, allowHeld: $reservation !== null && $reservation['space_id'] === $data->spaceId);
+
+            if (! SpaceCompatibility::accepts($space['type'], $vehicle['type'])) {
+                throw new SessionRuleViolation("El espacio {$space['code']} no admite este tipo de vehículo.", 'SPACE_INCOMPATIBLE');
+            }
+
+            return $space;
+        }
+
+        if (! $data->autoAssign) {
+            return null;
+        }
+
+        if ($reservation !== null && $reservation['space_id'] !== null) {
+            try {
+                return $this->spaces->occupy($tenantId, $lotId, $reservation['space_id'], allowHeld: true);
+            } catch (ParkingRuleViolation) {
+                // Taken by a walk-in before the hold started: place the arrival elsewhere.
+            }
+        }
+
+        $preferred = SpaceCompatibility::preferred($vehicle['type'], $vehicle['is_electric']);
+        $space = $reservation === null
+            ? $this->spaces->occupyFirstAvailable($tenantId, $lotId, $preferred)
+            : ($this->spaces->occupyFirstAvailable($tenantId, $lotId, $preferred, $reservation['zone_id'], reservableFirst: true)
+                ?? $this->spaces->occupyFirstAvailable($tenantId, $lotId, $preferred, reservableFirst: true));
+
+        if ($space === null) {
+            throw new SessionRuleViolation('No hay espacios disponibles para este tipo de vehículo. Elige uno a mano o registra la entrada sin espacio.', 'NO_SPACE_AVAILABLE');
+        }
+
+        return $space;
     }
 
     /**

@@ -8,6 +8,7 @@ use App\Modules\Audit\Application\RecordAuditEvent;
 use App\Modules\Parking\Application\ParkingSpaceAllocator;
 use App\Modules\ParkingSessions\Domain\SessionStatus;
 use App\Modules\ParkingSessions\Infrastructure\Persistence\ParkingSession;
+use App\Modules\Reservations\Application\ReservationDirectory;
 use App\Modules\Shared\Infrastructure\Realtime\LiveUpdates;
 use App\Modules\Tenancy\Application\TenantAuthorizer;
 use App\Modules\Tenancy\Domain\Permission;
@@ -26,6 +27,7 @@ final class CancelSession
         private readonly TenantAuthorizer $authorizer,
         private readonly ParkingSpaceAllocator $spaces,
         private readonly VehicleDirectory $vehicles,
+        private readonly ReservationDirectory $reservations,
         private readonly SessionLookup $lookup,
         private readonly RecordAuditEvent $audit,
         private readonly LiveUpdates $live,
@@ -53,6 +55,10 @@ final class CancelSession
 
             if ($session->space_id !== null) {
                 $this->spaces->release($tenantId, (string) $session->parking_lot_id, (string) $session->space_id);
+            }
+
+            if ($session->reservation_id !== null) {
+                $this->reservations->undoCheckIn($tenantId, (string) $session->reservation_id, $actorUserId);
             }
 
             $this->vehicles->recordStayEvent($tenantId, (string) $session->vehicle_id, VehicleEventType::SessionCancelled, $actorUserId, [

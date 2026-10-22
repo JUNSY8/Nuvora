@@ -48,6 +48,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'discount_amount',
     'total_amount',
     'pricing',
+    'reservation_id',
 ])]
 class ParkingSession extends Model
 {

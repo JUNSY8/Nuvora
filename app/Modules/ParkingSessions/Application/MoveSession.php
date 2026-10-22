@@ -6,9 +6,9 @@ namespace App\Modules\ParkingSessions\Application;
 
 use App\Modules\Audit\Application\RecordAuditEvent;
 use App\Modules\Parking\Application\ParkingSpaceAllocator;
+use App\Modules\Parking\Domain\SpaceCompatibility;
 use App\Modules\ParkingSessions\Domain\SessionRuleViolation;
 use App\Modules\ParkingSessions\Domain\SessionStatus;
-use App\Modules\ParkingSessions\Domain\SpaceCompatibility;
 use App\Modules\ParkingSessions\Infrastructure\Persistence\ParkingSession;
 use App\Modules\Shared\Infrastructure\Realtime\LiveUpdates;
 use App\Modules\Tenancy\Application\TenantAuthorizer;

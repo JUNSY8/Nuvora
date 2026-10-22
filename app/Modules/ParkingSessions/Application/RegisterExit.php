@@ -12,6 +12,7 @@ use App\Modules\ParkingSessions\Domain\SessionSource;
 use App\Modules\ParkingSessions\Domain\SessionStatus;
 use App\Modules\ParkingSessions\Domain\StayDuration;
 use App\Modules\ParkingSessions\Infrastructure\Persistence\ParkingSession;
+use App\Modules\Reservations\Application\ReservationDirectory;
 use App\Modules\Shared\Infrastructure\Realtime\LiveUpdates;
 use App\Modules\Tenancy\Application\TenantAuthorizer;
 use App\Modules\Tenancy\Domain\Permission;
@@ -34,6 +35,7 @@ final class RegisterExit
         private readonly GateCheck $gates,
         private readonly SessionLookup $lookup,
         private readonly SessionPricing $pricing,
+        private readonly ReservationDirectory $reservations,
         private readonly RecordAuditEvent $audit,
         private readonly LiveUpdates $live,
     ) {}
@@ -90,6 +92,10 @@ final class RegisterExit
 
             if ($session->space_id !== null) {
                 $this->spaces->release($tenantId, (string) $session->parking_lot_id, (string) $session->space_id);
+            }
+
+            if ($session->reservation_id !== null) {
+                $this->reservations->complete($tenantId, (string) $session->reservation_id, $actorUserId, $exitAt);
             }
 
             $this->vehicles->recordStayEvent($tenantId, (string) $session->vehicle_id, VehicleEventType::Exited, $actorUserId, [

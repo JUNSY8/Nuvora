@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\ParkingSessions\Presentation\Http\Requests;
 
 use App\Modules\ParkingSessions\Application\EntryData;
+use App\Modules\Shared\Presentation\Http\Concerns\ReadsIdempotencyKey;
 use App\Modules\Vehicles\Domain\VehicleType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
