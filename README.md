@@ -3413,6 +3413,8 @@ Review during 0.5: the roles screen and role changes on members are now in the i
 
 Review during 0.6: pricing adds `tariffs.view`, `tariffs.manage` and `sessions.discount`, backfilled to existing system roles. Row level security is enabled on every tenant table, but the local PostgreSQL role is a superuser and owns the tables, so the policies do not apply to the application connection (see ADR-012). Before production the application must connect with a role without `BYPASSRLS` that does not own the tables, or the tables need `FORCE ROW LEVEL SECURITY`.
 
+Review during 0.8: memberships add `memberships.view` (every system role) and `memberships.manage` (owner, administrator, supervisor, cashier), backfilled to existing system roles. The membership tables have row level security like the rest, so the 0.6 note about the database role still applies and is still open.
+
 ---
 
 
@@ -3462,6 +3464,8 @@ Review during 0.5: deleting a space did not translate foreign key errors, so a s
 Review during 0.6: a lot could change its currency at any time, which would silently change the meaning of every amount priced in it. A lot with tariffs now refuses the change (`CURRENCY_IN_USE`), enforced by a composite foreign key. A zone used by a tariff answers `ZONE_IN_USE` instead of the misleading "has spaces" message.
 
 Review during 0.7: reservable spaces are now the reservation pool. Walk-ins are assigned to them last and arrivals with a reservation first; a space held for a reservation (`reserved`) can only be taken by that arrival. `SpaceCompatibility` moved from ParkingSessions to Parking so Reservations can use it without a circular dependency. The weekly schedule now answers whether an interval is fully open, including overnight shifts.
+
+Review during 0.8: spaces marked assignable can be the fixed space of a membership. Walk-ins take them after the others, and a member arriving takes the assigned space when it is free.
 
 ---
 
@@ -3556,6 +3560,8 @@ Live updates by polling change markers (GET /api/v1/live); the dashboard refresh
 
 Charging at exit arrives with pricing (0.6) and payments (0.9). Live updates use polling instead of Reverb, which would have forced a downgrade of `guzzlehttp/psr7`; the transport can change without touching the use cases. See ADR-015.
 
+Review during 0.8: an entry asks Memberships whether a membership covers the arrival and answers `notices` for the operator; a covered stay is attributed to the membership holder. The exit event in the vehicle timeline records the charge status, so a covered exit no longer reads as "$0" without explanation.
+
 Review during 0.7: an entry checks in the vehicle's reservation, an exit completes it and a cancelled entry restores it. The `Idempotency-Key` handling moved to Shared, since bookings use it too.
 
 Review during 0.6: the exit now prices the stay and stores the charge. SQLite (used by CI) rebuilds a table to add columns with foreign keys and recreates partial indexes without their `WHERE`; the 0.6 migration restores the open-session indexes explicitly, otherwise a space could hold only one session in its whole history on SQLite. PostgreSQL was not affected.
@@ -3611,6 +3617,8 @@ Tariffs screen (tariffs, discounts and promotions, simulator), exit dialog with 
 ```
 
 Holidays and calendars, membership and reservation pricing, taxes and collecting the charge arrive with their versions (0.7, 0.8, 0.9, 0.11). See ADR-016.
+
+Review during 0.8: a stay covered by a membership is still priced with the tariff, so the value the membership paid is recorded, but it closes as `covered` with total 0 and takes no manual discount or promotion. Price lines gain the `membership` type.
 
 ---
 
@@ -3681,6 +3689,31 @@ VIP memberships
 Deliverable:
 
 Recurring customer access system.
+
+Status:
+
+Implemented in the codebase:
+
+```text
+Plans per tenant: price per period, currency, weekly/monthly/quarterly/yearly, grace days, vehicles, capacity
+Access rules per plan: lots, zones, vehicle types and weekly windows in local time (empty = no restriction)
+Categories (monthly, corporate, VIP, employees, residents, students...) as configuration, not code
+Sale to a customer with one or more vehicles, optional assigned space (spaces marked assignable)
+One vehicle per membership in force and one holder per assigned space, enforced by partial unique indexes
+Periods anchored to the start day in the tenant's local calendar; each period recorded as due
+Manual renewal (early renewals keep the paid days; expired ones restart today), at most one period ahead
+Idempotency-Key on renewal; a retry or double click never opens a second period
+Automatic renewal and expiration after the grace days: memberships:renew every hour, per tenant local day
+Suspension and cancellation with a reason, reactivation, automatic renewal on/off; every change audited
+Entry checks the membership: covered arrivals take the assigned space or a space in the plan's zones
+Uncovered members (suspended, expired, other lot, type, hours or zone) park as visitors with a notice
+Covered exits priced with the tariff and closed as covered (total 0, no discounts); covered exits in the summary
+Membership in the session, the history, the exit dialog and the vehicle timeline
+memberships.view / memberships.manage, backfilled to existing system roles
+Memberships screen (memberships, plans, sale, detail with vehicles, periods and actions)
+```
+
+Collecting periods, proration and refunds arrive with payments (0.9); barrier access by membership with LPR and hardware (0.12, 0.13); expiration notices with notifications (0.17). See ADR-018.
 
 ---
 

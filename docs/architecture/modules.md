@@ -1,16 +1,16 @@
 # Módulos
 
-| Módulo | Responsabilidad | Estado en 0.7 |
+| Módulo | Responsabilidad | Estado en 0.8 |
 | --- | --- | --- |
 | Identity | Usuarios y autenticación | Sesión, registro, verificación de correo y restablecimiento de contraseña |
 | Tenancy | Empresas, membresías, contexto y RBAC | Activo |
-| Parking | Sedes, horario, configuración, zonas, espacios y puertas | Activo. Expone `ParkingInfrastructureDirectory` y `ParkingSpaceAllocator` a otros módulos. Un parqueadero con tarifas no cambia de moneda |
+| Parking | Sedes, horario, configuración, zonas, espacios y puertas | Activo. Expone `ParkingInfrastructureDirectory` y `ParkingSpaceAllocator` a otros módulos. Un parqueadero con tarifas no cambia de moneda. Espacios reservables y asignables a mensualidades |
 | Vehicles | Vehículos, placas, vínculos con clientes e historial | Activo. Normaliza placas con reglas por país (`PlateRules`). Expone `VehicleDirectory` a las sesiones |
 | Customers | Personas, empresas y corporativos | Activo. Expone `CustomerDirectory` a otros módulos |
 | Reservations | Reservas, disponibilidad y ciclo de vida | Activo. Reservas de espacio, zona o parqueadero. Expone `ReservationDirectory` a las sesiones |
-| ParkingSessions | Entrada, salida, asignación de espacio y ciclo de la sesión | Activo. Operación manual; la salida calcula y guarda el cobro con Tariffs. El recaudo llega con Payments |
+| ParkingSessions | Entrada, salida, asignación de espacio y ciclo de la sesión | Activo. Operación manual; la salida calcula y guarda el cobro con Tariffs, o lo marca cubierto por una mensualidad. El recaudo llega con Payments |
 | Tariffs | Tarifas, descuentos, promociones y simulación | Activo. Tarifas versionadas por parqueadero. Expone `PricingEngine` a las sesiones |
-| Memberships | Membresías | Pendiente |
+| Memberships | Planes, mensualidades, periodos y acceso de clientes recurrentes | Activo. Venta, renovación (manual y automática), suspensión y vencimiento. Expone `MembershipDirectory` a las sesiones |
 | Payments | Pagos | Pendiente |
 | Billing | Facturación | Pendiente |
 | Notifications | Notificaciones | Pendiente |
@@ -34,3 +34,5 @@ ParkingSessions ocupa y libera espacios con `ParkingSpaceAllocator`, identifica 
 Tariffs lee moneda, zona horaria, gracia y zonas por `ParkingInfrastructureDirectory`. ParkingSessions le pide el precio de una estancia a `PricingEngine` dentro de la transacción de la salida y guarda el resultado en la sesión. Tariffs no depende de ParkingSessions. La decisión está en ADR-016.
 
 Reservations usa Parking (bolsa de espacios reservables, horario, retención de espacios), Vehicles, Customers y el `PricingEngine` de Tariffs. ParkingSessions llama a `ReservationDirectory` en la entrada, la salida y la anulación. `SpaceCompatibility` vive en Parking para que sesiones y reservas la compartan sin depender una de la otra. La decisión está en ADR-017.
+
+Memberships usa Parking (parqueaderos, zonas y espacios asignables), Vehicles, Customers y Tenancy (`TenantDirectory`, zona horaria de cada empresa para el scheduler). ParkingSessions llama a `MembershipDirectory` en la entrada (¿la mensualidad cubre esta llegada?), al calcular el precio (estancia cubierta) y para resumir la mensualidad de una sesión. Memberships no depende de ParkingSessions; de Tariffs solo reutiliza el valor `TimeWindow` (franjas semanales). La decisión está en ADR-018.

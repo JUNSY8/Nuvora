@@ -1,11 +1,11 @@
 openapi: 3.0.3
 info:
   title: Nuvora API
-  version: 0.7.0
+  version: 0.8.0
   description: |
     Contrato de salud, identidad, empresas (tenancy), auditoría, infraestructura de
     parqueaderos, registro de dispositivos, clientes, vehículos, sesiones de parqueo,
-    tarifas, descuentos y reservas.
+    tarifas, descuentos, reservas y mensualidades.
 
     El dinero viaja como entero en la unidad menor de la moneda (ISO 4217): 5.000 COP es
     500000. Los pesos colombianos se cobran enteros, así que sus montos son múltiplos de 100.
@@ -32,6 +32,7 @@ tags:
   - name: Sesiones
   - name: Tarifas
   - name: Reservas
+  - name: Mensualidades
   - name: Tiempo real
 paths:
   /health/live:
@@ -858,7 +859,7 @@ paths:
         - { name: lot_id, in: query, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
       responses:
         "200":
-          description: "`data.occupancy`, `open`, `open_without_space`, `entries_today`, `exits_today`, `charged_today` (unidad menor de `currency`), `unpriced_today`, `currency`, `cancelled_today`, `average_stay_minutes_today`, `oldest_open_entry_at`, `day_starts_at` y `version` (marcador de cambios)"
+          description: "`data.occupancy`, `open`, `open_without_space`, `entries_today`, `exits_today`, `charged_today` (unidad menor de `currency`), `unpriced_today`, `covered_today` (salidas cubiertas por mensualidad), `currency`, `cancelled_today`, `average_stay_minutes_today`, `oldest_open_entry_at`, `day_starts_at` y `version` (marcador de cambios)"
         "422": { description: "Parqueadero inexistente o de otra empresa" }
   /api/v1/parking-sessions/entries:
     post:
@@ -887,7 +888,7 @@ paths:
                 gate_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Puerta activa de entrada o bidireccional" }
                 notes: { type: string, maxLength: 500, nullable: true }
       responses:
-        "201": { description: "`data.session` y `data.replayed: false`" }
+        "201": { description: "`data.session`, `data.replayed: false` y `data.notices` (`info` o `warning`: si una mensualidad cubre la estancia o por qué no)" }
         "200": { description: "Reintento con la misma Idempotency-Key: `data.session` original y `data.replayed: true`" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { description: "Clave reutilizada para otra entrada (IDEMPOTENCY_KEY_REUSED) u otra operación ganó la carrera (ENTRY_CONFLICT)" }
@@ -908,7 +909,8 @@ paths:
       description: |
         Calcula el cobro con las tarifas vigentes cuando el vehículo entró y lo guarda en
         `data.session.charge`. Sin tarifa aplicable la salida se registra con `charge.status`
-        `unpriced`. Un reintento con la misma clave devuelve el cobro original sin recalcular.
+        `unpriced`; una estancia que entró cubierta por una mensualidad cierra `covered` con total 0 y
+        sin descuentos. Un reintento con la misma clave devuelve el cobro original sin recalcular.
       parameters:
         - { $ref: "#/components/parameters/IdempotencyKey" }
       requestBody:
@@ -1229,6 +1231,199 @@ paths:
       responses:
         "200": { description: "`data.reservation` cancelada" }
         "422": { description: "RESERVATION_NOT_CHANGEABLE (en curso o terminada) o motivo faltante" }
+  /api/v1/membership-plans:
+    get:
+      tags: [Mensualidades]
+      summary: Planes de mensualidad con las vigentes de cada uno (memberships.view)
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [active, inactive] } }
+      responses:
+        "200": { description: "`data.items` (MembershipPlan); `sold` cuenta las mensualidades vigentes o suspendidas" }
+    post:
+      tags: [Mensualidades]
+      summary: Crear un plan (memberships.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlanInput" }
+      responses:
+        "201": { description: "`data.plan`" }
+        "422": { description: "INVALID_PLAN, código repetido o parqueaderos y zonas de otra empresa" }
+  /api/v1/membership-plans/{plan}:
+    parameters: [{ name: plan, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    patch:
+      tags: [Mensualidades]
+      summary: Editar un plan (memberships.manage)
+      description: Precio y periodo aplican a las ventas nuevas; las reglas de acceso aplican a todas sus mensualidades.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlanInput" }
+      responses:
+        "200": { description: "`data.plan`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/membership-plans/{plan}/status:
+    parameters: [{ name: plan, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Mensualidades]
+      summary: Dejar de vender o volver a vender un plan (memberships.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [status], properties: { status: { type: string, enum: [active, inactive] } } }
+      responses:
+        "200": { description: "`data.plan`; las mensualidades vendidas no cambian" }
+  /api/v1/memberships:
+    get:
+      tags: [Mensualidades]
+      summary: Mensualidades, las vigentes que terminan antes primero (memberships.view)
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [active, suspended, expired, cancelled] } }
+        - { name: plan_id, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: customer_id, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: search, in: query, schema: { type: string, maxLength: 20 }, description: "Código (M-7K3M9Q) o placa sin separadores" }
+        - { $ref: "#/components/parameters/Page" }
+      responses:
+        "200": { description: "`data.items` (Membership sin `periods`) y `data.meta`" }
+    post:
+      tags: [Mensualidades]
+      summary: Vender una mensualidad (memberships.manage)
+      description: |
+        Registra los vehículos nuevos, abre el primer periodo por cobrar y, si se pide, asigna un
+        espacio marcado como asignable dentro de los parqueaderos y zonas del plan. Un vehículo
+        solo está en una mensualidad vigente y un espacio tiene un solo titular; PostgreSQL lo
+        garantiza con índices únicos parciales.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan_id, customer_id, starts_on, vehicles]
+              properties:
+                plan_id: { $ref: "#/components/schemas/Ulid" }
+                customer_id: { $ref: "#/components/schemas/Ulid" }
+                starts_on: { type: string, format: date, description: "Día local; entre 31 días atrás y 90 adelante" }
+                vehicles:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [plate, country]
+                    properties:
+                      plate: { type: string, maxLength: 20 }
+                      country: { type: string, minLength: 2, maxLength: 2 }
+                      vehicle_type: { allOf: [{ $ref: "#/components/schemas/VehicleType" }], nullable: true }
+                assigned_lot_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+                assigned_space_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+                auto_renew: { type: boolean, default: true }
+                notes: { type: string, maxLength: 500, nullable: true }
+      responses:
+        "201": { description: "`data.membership` con `periods`" }
+        "409": { description: "PLAN_FULL, VEHICLE_ALREADY_MEMBER, SPACE_ALREADY_ASSIGNED o MEMBERSHIP_CONFLICT" }
+        "422": { description: "PLAN_INACTIVE, TOO_MANY_VEHICLES, SPACE_NOT_ASSIGNABLE, SPACE_OUTSIDE_PLAN o datos inválidos" }
+  /api/v1/memberships/{membership}:
+    parameters: [{ name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    get:
+      tags: [Mensualidades]
+      summary: Detalle con sus periodos (memberships.view)
+      responses:
+        "200": { description: "`data.membership`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/memberships/{membership}/vehicles:
+    parameters: [{ name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Mensualidades]
+      summary: Agregar un vehículo (memberships.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plate, country]
+              properties:
+                plate: { type: string, maxLength: 20 }
+                country: { type: string, minLength: 2, maxLength: 2 }
+                vehicle_type: { allOf: [{ $ref: "#/components/schemas/VehicleType" }], nullable: true }
+      responses:
+        "200": { description: "`data.membership`" }
+        "409": { description: "VEHICLE_ALREADY_MEMBER" }
+        "422": { description: "TOO_MANY_VEHICLES o MEMBERSHIP_NOT_CHANGEABLE" }
+  /api/v1/memberships/{membership}/vehicles/{vehicle}:
+    parameters:
+      - { name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+      - { $ref: "#/components/parameters/Vehicle" }
+    delete:
+      tags: [Mensualidades]
+      summary: Retirar un vehículo (memberships.manage)
+      responses:
+        "200": { description: "`data.membership`" }
+        "422": { description: "VEHICLE_NOT_IN_MEMBERSHIP o LAST_VEHICLE (una mensualidad vigente necesita uno)" }
+  /api/v1/memberships/{membership}/renew:
+    parameters: [{ name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Mensualidades]
+      summary: Abrir el siguiente periodo por cobrar (memberships.manage)
+      description: |
+        Renovada antes de tiempo, los días pagados siguen cubiertos; vencida, empieza un ciclo
+        nuevo hoy. Se renueva a lo sumo un periodo adelante. Un reintento con la misma
+        `Idempotency-Key` devuelve la mensualidad sin abrir otro periodo.
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      responses:
+        "200": { description: "`data.membership`" }
+        "409": { description: "ALREADY_RENEWED" }
+        "422": { description: "MEMBERSHIP_NOT_CHANGEABLE (cancelada)" }
+  /api/v1/memberships/{membership}/suspend:
+    parameters: [{ name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Mensualidades]
+      summary: Suspender con motivo; sus vehículos pagan como visitantes (memberships.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 3, maxLength: 255 } } }
+      responses:
+        "200": { description: "`data.membership` suspendida" }
+        "422": { description: "MEMBERSHIP_NOT_CHANGEABLE o motivo faltante" }
+  /api/v1/memberships/{membership}/reactivate:
+    parameters: [{ name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Mensualidades]
+      summary: Reactivar una mensualidad suspendida (memberships.manage)
+      responses:
+        "200": { description: "`data.membership` vigente" }
+        "422": { description: "MEMBERSHIP_NOT_CHANGEABLE" }
+  /api/v1/memberships/{membership}/cancel:
+    parameters: [{ name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Mensualidades]
+      summary: Cancelar con motivo; libera vehículos, espacio y cupo (memberships.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 3, maxLength: 255 } } }
+      responses:
+        "200": { description: "`data.membership` cancelada" }
+        "422": { description: "MEMBERSHIP_NOT_CHANGEABLE o motivo faltante" }
+  /api/v1/memberships/{membership}/auto-renew:
+    parameters: [{ name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Mensualidades]
+      summary: Activar o desactivar la renovación automática (memberships.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [auto_renew], properties: { auto_renew: { type: boolean } } }
+      responses:
+        "200": { description: "`data.membership`" }
   /api/v1/live:
     get:
       tags: [Tiempo real]
@@ -1514,18 +1709,19 @@ components:
     PriceLine:
       type: object
       properties:
-        type: { type: string, enum: [bracket, step, day, daily_cap, grace, discount] }
+        type: { type: string, enum: [bracket, step, day, daily_cap, grace, discount, membership] }
         label: { type: string }
-        amount: { type: integer, description: "Negativo en los descuentos" }
+        amount: { type: integer, description: "Negativo en los descuentos y en la cobertura de la mensualidad" }
         quantity: { type: integer, nullable: true }
         unit_amount: { type: integer, nullable: true }
     Quote:
       type: object
       properties:
-        status: { type: string, enum: [priced, unpriced] }
+        status: { type: string, enum: [priced, unpriced, covered], description: "covered: la paga una mensualidad; subtotal es lo que habría cobrado la tarifa y total es 0" }
         currency: { type: string }
         tariff: { type: object, nullable: true, properties: { id: { type: string }, version_id: { type: string }, version: { type: integer }, code: { type: string }, name: { type: string } } }
         discount_rule: { type: object, nullable: true, properties: { id: { type: string }, code: { type: string }, name: { type: string } } }
+        membership: { type: object, nullable: true, properties: { id: { type: string }, code: { type: string }, plan: { type: string } } }
         stay_minutes: { type: integer }
         charged_minutes: { type: integer, nullable: true }
         grace_minutes: { type: integer, nullable: true }
@@ -1535,12 +1731,79 @@ components:
         total: { type: integer, nullable: true }
         lines: { type: array, items: { $ref: "#/components/schemas/PriceLine" } }
         reason: { type: string, nullable: true }
+    PlanInput:
+      type: object
+      required: [code, name, category, billing_period, price_amount, currency, grace_days, max_vehicles, parking_lot_ids, zone_ids, vehicle_types, windows]
+      description: Las listas vacías de parqueaderos, zonas, tipos o franjas no restringen.
+      properties:
+        code: { type: string, maxLength: 40 }
+        name: { type: string, maxLength: 80 }
+        category: { type: string, enum: [monthly, weekly, corporate, vip, employee, resident, student, other] }
+        billing_period: { type: string, enum: [weekly, monthly, quarterly, yearly] }
+        price_amount: { type: integer, minimum: 0, description: "Por periodo, en unidad menor (120.000 COP = 12000000)" }
+        currency: { type: string, example: COP }
+        grace_days: { type: integer, minimum: 0, maximum: 31 }
+        max_vehicles: { type: integer, minimum: 1, maximum: 500 }
+        capacity: { type: integer, minimum: 1, nullable: true, description: "Cupos a la venta; null sin límite" }
+        parking_lot_ids: { type: array, items: { $ref: "#/components/schemas/Ulid" } }
+        zone_ids: { type: array, items: { $ref: "#/components/schemas/Ulid" }, description: "El vehículo debe quedar en una de estas zonas" }
+        vehicle_types: { type: array, items: { $ref: "#/components/schemas/VehicleType" } }
+        windows:
+          type: array
+          maxItems: 14
+          description: Franjas semanales en hora local; decide la hora de llegada
+          items:
+            type: object
+            required: [days, start, end]
+            properties:
+              days: { type: array, items: { type: integer, minimum: 1, maximum: 7 } }
+              start: { type: string, example: "06:00" }
+              end: { type: string, example: "20:00" }
+        description: { type: string, maxLength: 500, nullable: true }
+    Membership:
+      type: object
+      description: Fechas en días locales de la empresa; el fin del periodo es inclusivo.
+      properties:
+        id: { $ref: "#/components/schemas/Ulid" }
+        code: { type: string, example: M-7K3M9Q }
+        status: { type: string, enum: [active, suspended, expired, cancelled] }
+        status_reason: { type: string, nullable: true }
+        plan: { type: object, properties: { id: { type: string }, code: { type: string }, name: { type: string }, category: { type: string } } }
+        customer: { type: object, nullable: true }
+        billing_period: { type: string }
+        price_amount: { type: integer, description: "Precio vendido; no cambia si el plan cambia" }
+        currency: { type: string }
+        grace_days: { type: integer }
+        starts_on: { type: string, format: date }
+        current_period_start: { type: string, format: date }
+        current_period_end: { type: string, format: date }
+        covered_until: { type: string, format: date, description: "Fin del periodo más los días de gracia" }
+        ended_on: { type: string, format: date, nullable: true }
+        auto_renew: { type: boolean }
+        assigned_space: { type: object, nullable: true, properties: { id: { type: string }, code: { type: string }, parking_lot_id: { type: string } } }
+        vehicles:
+          type: array
+          items: { type: object, properties: { id: { type: string }, plate: { type: string }, country: { type: string }, type: { type: string }, added_at: { type: string, format: date-time } } }
+        notes: { type: string, nullable: true }
+        periods:
+          type: array
+          description: Solo en el detalle y las mutaciones; el más reciente primero
+          items:
+            type: object
+            properties:
+              sequence: { type: integer }
+              starts_on: { type: string, format: date }
+              ends_on: { type: string, format: date }
+              amount: { type: integer }
+              currency: { type: string }
+              status: { type: string, enum: [due, paid, void], description: "El recaudo llega con pagos (0.9)" }
+              origin: { type: string, enum: [subscription, renewal, automatic] }
     ReservationStatus: { type: string, enum: [pending, confirmed, active, completed, cancelled, expired, no_show] }
     SessionCharge:
       type: object
       description: Cobro guardado en la salida; null mientras la sesión está abierta o si se anuló.
       properties:
-        status: { type: string, enum: [priced, unpriced] }
+        status: { type: string, enum: [priced, unpriced, covered], description: "covered: la paga una mensualidad; subtotal es lo que habría cobrado la tarifa y total es 0" }
         currency: { type: string, nullable: true }
         subtotal: { type: integer, nullable: true }
         discount: { type: integer, nullable: true }
@@ -1549,6 +1812,7 @@ components:
         grace_applied: { type: boolean }
         tariff: { type: object, nullable: true }
         discount_rule: { type: object, nullable: true }
+        membership: { type: object, nullable: true, description: "Mensualidad que cubrió la estancia" }
         lines: { type: array, items: { $ref: "#/components/schemas/PriceLine" } }
         reason: { type: string, nullable: true }
 security:
