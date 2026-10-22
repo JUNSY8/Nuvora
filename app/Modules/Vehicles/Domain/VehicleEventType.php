@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Modules\Vehicles\Domain;
 
 /**
- * Entries of the vehicle timeline. Reservations and LPR reads will append
- * their own types in later versions.
+ * Entries of the vehicle timeline. Sessions, reservations and memberships
+ * append their own types; LPR reads will in a later version.
  */
 enum VehicleEventType: string
 {
@@ -21,4 +21,6 @@ enum VehicleEventType: string
     case Exited = 'exited';
     case SessionCancelled = 'session_cancelled';
     case Reserved = 'reserved';
+    case MembershipAdded = 'membership_added';
+    case MembershipRemoved = 'membership_removed';
 }

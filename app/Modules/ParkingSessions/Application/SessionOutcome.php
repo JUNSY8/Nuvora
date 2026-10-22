@@ -12,8 +12,12 @@ use App\Modules\ParkingSessions\Infrastructure\Persistence\ParkingSession;
  */
 final class SessionOutcome
 {
+    /**
+     * @param  list<array{type: string, message: string}>  $notices  what the operator should know (membership coverage...)
+     */
     public function __construct(
         public readonly ParkingSession $session,
         public readonly bool $replayed,
+        public readonly array $notices = [],
     ) {}
 }

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Modules\ParkingSessions\Application;
 
 use App\Modules\ParkingSessions\Domain\SessionStatus;
-use App\Modules\Tariffs\Application\Quote;
 use App\Modules\Tenancy\Application\TenantAuthorizer;
 use App\Modules\Tenancy\Domain\Permission;
 
@@ -22,7 +21,10 @@ final class QuoteSession
         private readonly SessionPricing $pricing,
     ) {}
 
-    public function handle(string $actorUserId, string $tenantId, string $sessionId, ?string $discountId): Quote
+    /**
+     * @return array<string, mixed>
+     */
+    public function handle(string $actorUserId, string $tenantId, string $sessionId, ?string $discountId): array
     {
         $this->authorizer->assert($actorUserId, $tenantId, Permission::SESSIONS_VIEW);
 
@@ -36,6 +38,6 @@ final class QuoteSession
             throw RegisterExit::notOpen($session);
         }
 
-        return $this->pricing->quote($tenantId, $session, now()->toImmutable(), $discountId);
+        return $this->pricing->preview($tenantId, $session, now()->toImmutable(), $discountId);
     }
 }

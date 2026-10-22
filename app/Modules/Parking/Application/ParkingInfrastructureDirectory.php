@@ -109,7 +109,7 @@ final class ParkingInfrastructureDirectory
     }
 
     /**
-     * @return array{id: string, code: string, zone_id: string|null, type: SpaceType, status: SpaceStatus, is_reservable: bool}|null
+     * @return array{id: string, code: string, zone_id: string|null, type: SpaceType, status: SpaceStatus, is_reservable: bool, is_assignable: bool}|null
      */
     public function space(string $tenantId, string $lotId, string $spaceId): ?array
     {
@@ -117,9 +117,9 @@ final class ParkingInfrastructureDirectory
             ->where('tenant_id', $tenantId)
             ->where('parking_lot_id', $lotId)
             ->whereKey($spaceId)
-            ->first(['id', 'code', 'zone_id', 'type', 'status', 'is_reservable']);
+            ->first(['id', 'code', 'zone_id', 'type', 'status', 'is_reservable', 'is_assignable']);
 
-        return $space === null ? null : [...self::spaceSummary($space), 'is_reservable' => $space->is_reservable];
+        return $space === null ? null : [...self::spaceSummary($space), 'is_reservable' => $space->is_reservable, 'is_assignable' => $space->is_assignable];
     }
 
     /**

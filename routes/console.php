@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\Memberships\Application\MembershipRenewer;
 use App\Modules\Reservations\Application\ReservationSweeper;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -15,3 +16,10 @@ Artisan::command('reservations:sweep', function (ReservationSweeper $sweeper) {
 })->purpose('Advance reservations with the clock');
 
 Schedule::command('reservations:sweep')->everyMinute()->withoutOverlapping();
+
+// Renews or expires memberships whose period ended, in each tenant's local day. See ADR-018.
+Artisan::command('memberships:renew', function (MembershipRenewer $renewer) {
+    $this->info('Mensualidades actualizadas: '.$renewer->run());
+})->purpose('Renew or expire memberships whose period ended');
+
+Schedule::command('memberships:renew')->hourly()->withoutOverlapping();

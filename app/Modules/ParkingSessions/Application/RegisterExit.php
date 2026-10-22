@@ -76,10 +76,8 @@ final class RegisterExit
 
             $exitAt = now()->toImmutable();
             $minutes = StayDuration::minutes($session->entry_at, $exitAt);
-            $quote = $this->pricing->quote($tenantId, $session, $exitAt, $discountId);
-
             $session->fill([
-                ...SessionPricing::chargeAttributes($quote),
+                ...$this->pricing->charge($tenantId, $session, $exitAt, $discountId),
                 'status' => SessionStatus::Closed,
                 'exit_at' => $exitAt,
                 'duration_minutes' => $minutes,

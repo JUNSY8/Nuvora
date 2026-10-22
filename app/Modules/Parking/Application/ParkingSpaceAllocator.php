@@ -53,7 +53,8 @@ final class ParkingSpaceAllocator
      * instead of waited for, so two operators get two different spaces.
      *
      * Reservable spaces form the reservation pool: walk-ins use them last,
-     * arrivals with a reservation use them first. A zone narrows the search.
+     * arrivals with a reservation use them first. Spaces assignable to
+     * memberships come after the others. A zone narrows the search.
      *
      * @param  list<SpaceType>  $types  in order of preference
      * @return array{id: string, code: string, type: SpaceType}|null
@@ -68,6 +69,7 @@ final class ParkingSpaceAllocator
                 ->where('status', SpaceStatus::Available->value)
                 ->when($zoneId !== null, fn ($query) => $query->where('zone_id', $zoneId))
                 ->orderBy('is_reservable', $reservableFirst ? 'desc' : 'asc')
+                ->orderBy('is_assignable')
                 ->orderBy('code')
                 ->orderBy('id')
                 ->limit(1);

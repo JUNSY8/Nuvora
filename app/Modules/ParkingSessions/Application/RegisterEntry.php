@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\ParkingSessions\Application;
 
 use App\Modules\Audit\Application\RecordAuditEvent;
+use App\Modules\Memberships\Application\MembershipDirectory;
 use App\Modules\Parking\Application\ParkingInfrastructureDirectory;
 use App\Modules\Parking\Application\ParkingSpaceAllocator;
 use App\Modules\Parking\Domain\GateDirection;
@@ -45,6 +46,7 @@ final class RegisterEntry
         private readonly VehicleDirectory $vehicles,
         private readonly GateCheck $gates,
         private readonly ReservationDirectory $reservations,
+        private readonly MembershipDirectory $memberships,
         private readonly SessionLookup $lookup,
         private readonly RecordAuditEvent $audit,
         private readonly LiveUpdates $live,
@@ -67,8 +69,14 @@ final class RegisterEntry
 
         $this->gates->assertUsable($tenantId, $lot['id'], $data->gateId, GateDirection::Entry);
 
+        $notices = [];
+
         try {
-            $session = DB::transaction(fn (): ParkingSession => $this->open($actorUserId, $tenantId, $lot['id'], $data), 3);
+            $session = DB::transaction(function () use ($actorUserId, $tenantId, $lot, $data, &$notices): ParkingSession {
+                $notices = [];
+
+                return $this->open($actorUserId, $tenantId, $lot, $data, $notices);
+            }, 3);
         } catch (UniqueConstraintViolationException) {
             if ($data->idempotencyKey !== null && ($previous = $this->replay($tenantId, $data)) !== null) {
                 return new SessionOutcome($previous, true);
@@ -90,16 +98,22 @@ final class RegisterEntry
                 'space_code' => $session->space_code,
                 'entry_gate_id' => $session->entry_gate_id,
                 'reservation_id' => $session->reservation_id,
+                'membership_id' => $session->membership_id,
             ],
         );
 
         $this->live->touch(LiveUpdates::tenant($tenantId), LiveUpdates::lot($tenantId, $lot['id']));
 
-        return new SessionOutcome($session, false);
+        return new SessionOutcome($session, false, $notices);
     }
 
-    private function open(string $actorUserId, string $tenantId, string $lotId, EntryData $data): ParkingSession
+    /**
+     * @param  array{id: string, timezone: string}  $lot
+     * @param  list<array{type: string, message: string}>  $notices  what the operator should know about this entry
+     */
+    private function open(string $actorUserId, string $tenantId, array $lot, EntryData $data, array &$notices): ParkingSession
     {
+        $lotId = $lot['id'];
         $vehicle = $this->vehicles->identifyOrRegister($tenantId, $actorUserId, $data->plate, $data->country, $data->vehicleType);
 
         if ($vehicle['status'] === VehicleStatus::Blocked) {
@@ -123,7 +137,27 @@ final class RegisterEntry
 
         $now = now()->toImmutable();
         $reservation = $this->reservations->arrival($tenantId, $lotId, $vehicle['id'], $now);
-        $space = $this->chooseSpace($tenantId, $lotId, $data, $vehicle, $reservation);
+        $access = $this->memberships->accessFor($tenantId, $lotId, $lot['timezone'], $vehicle['id'], $vehicle['type'], $now);
+        $membership = $access !== null && $access['decision']->covered ? $access['membership'] : null;
+        $space = $this->chooseSpace($tenantId, $lotId, $data, $vehicle, $reservation, $membership);
+
+        if ($access !== null && ! $access['decision']->covered) {
+            $notices[] = ['type' => 'warning', 'message' => "Mensualidad {$access['membership']['code']}: {$access['decision']->reason} La estancia se cobra como visitante."];
+        }
+
+        // A plan limited to some zones covers only stays parked in them.
+        if ($membership !== null && $membership['zone_ids'] !== []) {
+            $zoneId = $space === null ? null : $this->parking->spaceZoneId($tenantId, $lotId, $space['id']);
+
+            if (! in_array($zoneId, $membership['zone_ids'], true)) {
+                $notices[] = ['type' => 'warning', 'message' => "La mensualidad {$membership['code']} no cubre este espacio o zona. La estancia se cobra como visitante."];
+                $membership = null;
+            }
+        }
+
+        if ($membership !== null) {
+            $notices[] = ['type' => 'info', 'message' => "Mensualidad {$membership['code']} ({$membership['plan']}): la estancia queda cubierta."];
+        }
 
         $session = ParkingSession::query()->create([
             'tenant_id' => $tenantId,
@@ -143,6 +177,7 @@ final class RegisterEntry
             'entry_idempotency_key' => $data->idempotencyKey,
             'notes' => $data->notes,
             'reservation_id' => $reservation['id'] ?? null,
+            'membership_id' => $membership['id'] ?? null,
         ]);
 
         if ($reservation !== null) {
@@ -154,6 +189,7 @@ final class RegisterEntry
             'parking_lot_id' => $lotId,
             'space_code' => $session->space_code,
             'reservation_code' => $reservation['code'] ?? null,
+            'membership_code' => $membership['code'] ?? null,
         ]);
 
         return $session;
@@ -163,13 +199,16 @@ final class RegisterEntry
      * An operator's choice wins. A reservation for a space takes that space
      * (held for it) or, if a walk-in occupies it, another in its zone; a
      * reservation for a zone takes a space of that zone. Arrivals with a
-     * reservation use reservable spaces first; walk-ins use them last.
+     * reservation use reservable spaces first; walk-ins use them last. A
+     * member takes the space assigned to the membership when it is free, or
+     * one in the plan's zones.
      *
      * @param  array{type: VehicleType, is_electric: bool}  $vehicle
      * @param  array{id: string, code: string, zone_id: string|null, space_id: string|null, space_code: string|null}|null  $reservation
+     * @param  array{assigned_lot_id: string|null, assigned_space_id: string|null, zone_ids: list<string>}|null  $membership
      * @return array{id: string, code: string, type: SpaceType}|null
      */
-    private function chooseSpace(string $tenantId, string $lotId, EntryData $data, array $vehicle, ?array $reservation): ?array
+    private function chooseSpace(string $tenantId, string $lotId, EntryData $data, array $vehicle, ?array $reservation, ?array $membership): ?array
     {
         if ($data->spaceId !== null) {
             $space = $this->spaces->occupy($tenantId, $lotId, $data->spaceId, allowHeld: $reservation !== null && $reservation['space_id'] === $data->spaceId);
@@ -194,6 +233,25 @@ final class RegisterEntry
         }
 
         $preferred = SpaceCompatibility::preferred($vehicle['type'], $vehicle['is_electric']);
+
+        if ($reservation === null && $membership !== null) {
+            if ($membership['assigned_space_id'] !== null && $membership['assigned_lot_id'] === $lotId) {
+                try {
+                    return $this->spaces->occupy($tenantId, $lotId, $membership['assigned_space_id']);
+                } catch (ParkingRuleViolation) {
+                    // The assigned space is taken or out of service: place the member elsewhere.
+                }
+            }
+
+            foreach ($membership['zone_ids'] as $zoneId) {
+                $space = $this->spaces->occupyFirstAvailable($tenantId, $lotId, $preferred, $zoneId);
+
+                if ($space !== null) {
+                    return $space;
+                }
+            }
+        }
+
         $space = $reservation === null
             ? $this->spaces->occupyFirstAvailable($tenantId, $lotId, $preferred)
             : ($this->spaces->occupyFirstAvailable($tenantId, $lotId, $preferred, $reservation['zone_id'], reservableFirst: true)

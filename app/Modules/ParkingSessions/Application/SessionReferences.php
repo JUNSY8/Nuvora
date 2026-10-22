@@ -5,13 +5,14 @@ declare(strict_types=1);
 namespace App\Modules\ParkingSessions\Application;
 
 use App\Modules\Customers\Application\CustomerDirectory;
+use App\Modules\Memberships\Application\MembershipDirectory;
 use App\Modules\Parking\Application\ParkingInfrastructureDirectory;
 use App\Modules\ParkingSessions\Infrastructure\Persistence\ParkingSession;
 use App\Modules\Reservations\Application\ReservationDirectory;
 
 /**
- * Resolves, with one query per module, the lots, gates, customers and
- * reservations a page of sessions points to. Only summaries cross the module boundaries.
+ * Resolves, with one query per module, the lots, gates, customers,
+ * reservations and memberships a page of sessions points to. Only summaries cross the module boundaries.
  */
 final class SessionReferences
 {
@@ -20,12 +21,14 @@ final class SessionReferences
      * @param  array<string, array{id: string, name: string, code: string}>  $gates
      * @param  array<string, array{id: string, name: string, type: string, status: string}>  $customers
      * @param  array<string, array{id: string, code: string, status: string}>  $reservations
+     * @param  array<string, array{id: string, code: string, plan: string}>  $memberships
      */
     private function __construct(
         public readonly array $lots,
         public readonly array $gates,
         public readonly array $customers,
         public readonly array $reservations,
+        public readonly array $memberships,
     ) {}
 
     /**
@@ -37,6 +40,7 @@ final class SessionReferences
         $gates = [];
         $customers = [];
         $reservations = [];
+        $memberships = [];
 
         foreach ($sessions as $session) {
             $lots[(string) $session->parking_lot_id] = true;
@@ -54,6 +58,10 @@ final class SessionReferences
             if ($session->reservation_id !== null) {
                 $reservations[(string) $session->reservation_id] = true;
             }
+
+            if ($session->membership_id !== null) {
+                $memberships[(string) $session->membership_id] = true;
+            }
         }
 
         $parking = app(ParkingInfrastructureDirectory::class);
@@ -63,6 +71,7 @@ final class SessionReferences
             $parking->gateSummaries($tenantId, array_keys($gates)),
             app(CustomerDirectory::class)->summaries($tenantId, array_keys($customers)),
             app(ReservationDirectory::class)->summaries($tenantId, array_keys($reservations)),
+            app(MembershipDirectory::class)->summaries($tenantId, array_keys($memberships)),
         );
     }
 }

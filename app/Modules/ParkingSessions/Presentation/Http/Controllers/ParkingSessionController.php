@@ -92,7 +92,7 @@ final class ParkingSessionController
             isset($validated['discount_id']) ? strtolower((string) $validated['discount_id']) : null,
         );
 
-        return ApiResponse::success(['quote' => $quote->toArray()], 200, $request);
+        return ApiResponse::success(['quote' => $quote], 200, $request);
     }
 
     public function entry(EntryRequest $request, RegisterEntry $registerEntry, TenantContext $context): JsonResponse
@@ -139,6 +139,7 @@ final class ParkingSessionController
         return ApiResponse::success([
             'session' => SessionPayload::session($session, $refs),
             'replayed' => $outcome->replayed,
+            'notices' => $outcome->notices,
         ], $outcome->replayed ? 200 : $status, $request);
     }
 }

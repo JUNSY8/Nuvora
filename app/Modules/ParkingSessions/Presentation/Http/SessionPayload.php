@@ -43,6 +43,7 @@ final class SessionPayload
             'notes' => $session->notes,
             'charge' => self::charge($session),
             'reservation' => $session->reservation_id === null ? null : ($refs->reservations[(string) $session->reservation_id] ?? null),
+            'membership' => $session->membership_id === null ? null : ($refs->memberships[(string) $session->membership_id] ?? null),
         ];
     }
 
@@ -70,6 +71,7 @@ final class SessionPayload
             'grace_applied' => (bool) ($pricing['grace_applied'] ?? false),
             'tariff' => $pricing['tariff'] ?? null,
             'discount_rule' => $pricing['discount_rule'] ?? null,
+            'membership' => $pricing['membership'] ?? null,
             'lines' => $pricing['lines'] ?? [],
             'reason' => $pricing['reason'] ?? null,
         ];
