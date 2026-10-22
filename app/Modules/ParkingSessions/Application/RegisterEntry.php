@@ -163,7 +163,8 @@ final class RegisterEntry
             'tenant_id' => $tenantId,
             'parking_lot_id' => $lotId,
             'vehicle_id' => $vehicle['id'],
-            'customer_id' => $this->vehicles->primaryCustomerId($tenantId, $vehicle['id']),
+            // A covered stay belongs to whoever holds the membership that pays it.
+            'customer_id' => $membership['customer_id'] ?? $this->vehicles->primaryCustomerId($tenantId, $vehicle['id']),
             'space_id' => $space['id'] ?? null,
             'plate' => $vehicle['plate'],
             'country' => $vehicle['country'],

@@ -103,6 +103,7 @@ final class RegisterExit
                 'duration_minutes' => $minutes,
                 'total_amount' => $session->total_amount,
                 'currency' => $session->currency,
+                'charge_status' => $session->charge_status?->value,
             ]);
 
             return $session;
@@ -128,6 +129,7 @@ final class RegisterExit
                 'discount_id' => $session->discount_id,
                 'total_amount' => $session->total_amount,
                 'currency' => $session->currency,
+                'charge_status' => $session->charge_status?->value,
             ],
         );
 

@@ -29,7 +29,7 @@ final class OperationsSummary
     ) {}
 
     /**
-     * @return array{lot: array<string, mixed>, occupancy: Occupancy, open: int, open_without_space: int, entries_today: int, exits_today: int, charged_today: int, unpriced_today: int, currency: string, cancelled_today: int, average_stay_minutes_today: int|null, oldest_open_entry_at: string|null, day_starts_at: string, version: string}
+     * @return array{lot: array<string, mixed>, occupancy: Occupancy, open: int, open_without_space: int, entries_today: int, exits_today: int, charged_today: int, unpriced_today: int, covered_today: int, currency: string, cancelled_today: int, average_stay_minutes_today: int|null, oldest_open_entry_at: string|null, day_starts_at: string, version: string}
      */
     public function handle(string $actorUserId, string $tenantId, string $lotId): array
     {
@@ -50,7 +50,7 @@ final class OperationsSummary
         $closedToday = $sessions()
             ->where('status', SessionStatus::Closed->value)
             ->where('exit_at', '>=', $dayStart)
-            ->selectRaw('count(*) as total, avg(duration_minutes) as average, sum(total_amount) as charged, sum(case when charge_status = ? then 1 else 0 end) as unpriced', [ChargeStatus::Unpriced->value])
+            ->selectRaw('count(*) as total, avg(duration_minutes) as average, sum(total_amount) as charged, sum(case when charge_status = ? then 1 else 0 end) as unpriced, sum(case when charge_status = ? then 1 else 0 end) as covered', [ChargeStatus::Unpriced->value, ChargeStatus::Covered->value])
             ->toBase()
             ->first();
         $average = $closedToday?->average;
@@ -71,6 +71,7 @@ final class OperationsSummary
             'exits_today' => (int) ($closedToday->total ?? 0),
             'charged_today' => (int) ($closedToday->charged ?? 0),
             'unpriced_today' => (int) ($closedToday->unpriced ?? 0),
+            'covered_today' => (int) ($closedToday->covered ?? 0),
             'currency' => $lot['currency'],
             'cancelled_today' => $sessions()->where('status', SessionStatus::Cancelled->value)->where('cancelled_at', '>=', $dayStart)->count(),
             'average_stay_minutes_today' => $average === null ? null : (int) round((float) $average),
