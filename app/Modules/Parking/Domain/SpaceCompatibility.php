@@ -2,9 +2,8 @@
 
 declare(strict_types=1);
 
-namespace App\Modules\ParkingSessions\Domain;
+namespace App\Modules\Parking\Domain;
 
-use App\Modules\Parking\Domain\SpaceType;
 use App\Modules\Vehicles\Domain\VehicleType;
 
 /**

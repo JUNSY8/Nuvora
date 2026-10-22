@@ -29,10 +29,10 @@ final class DeleteParkingZone
             throw new ParkingRuleViolation($message, 'ZONE_HAS_SPACES');
         }
 
-        // Tariff versions keep a restrictive reference to the zone they priced.
+        // Tariff versions and reservations keep a restrictive reference to the zone.
         ForeignKeyGuard::delete(
             fn () => $zone->delete(),
-            'La zona tiene espacios o tarifas asociadas. Márcala inactiva en lugar de eliminarla.',
+            'La zona tiene espacios, tarifas o reservas asociadas. Márcala inactiva en lugar de eliminarla.',
             'ZONE_IN_USE',
         );
 

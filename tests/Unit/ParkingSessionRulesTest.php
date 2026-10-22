@@ -2,9 +2,9 @@
 
 namespace Tests\Unit;
 
+use App\Modules\Parking\Domain\SpaceCompatibility;
 use App\Modules\Parking\Domain\SpaceType;
 use App\Modules\ParkingSessions\Domain\SessionStatus;
-use App\Modules\ParkingSessions\Domain\SpaceCompatibility;
 use App\Modules\ParkingSessions\Domain\StayDuration;
 use App\Modules\Vehicles\Domain\VehicleType;
 use DateTimeImmutable;
