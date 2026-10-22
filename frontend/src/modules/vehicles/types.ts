@@ -3,7 +3,17 @@ import type { CustomerSummary } from '@/modules/customers/types'
 export type VehicleType = 'car' | 'motorcycle' | 'bicycle' | 'van' | 'truck' | 'bus' | 'other'
 export type VehicleStatus = 'active' | 'inactive' | 'blocked'
 export type VehicleRelationship = 'owner' | 'driver' | 'authorized'
-export type VehicleEventType = 'registered' | 'updated' | 'plate_changed' | 'status_changed' | 'customer_linked' | 'relationship_changed' | 'customer_unlinked'
+export type VehicleEventType =
+  | 'registered'
+  | 'updated'
+  | 'plate_changed'
+  | 'status_changed'
+  | 'customer_linked'
+  | 'relationship_changed'
+  | 'customer_unlinked'
+  | 'entered'
+  | 'exited'
+  | 'session_cancelled'
 
 export interface VehicleLink {
   id: string

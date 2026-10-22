@@ -8,6 +8,7 @@ import StatCard from '@/components/ui/StatCard.vue'
 import StateCard from '@/components/ui/StateCard.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { solidFill, toneText } from '@/components/ui/tones'
+import { useLiveUpdates } from '@/composables/useLiveUpdates'
 import { usePermissions } from '@/composables/usePermissions'
 import { listDevices } from '@/modules/devices/api'
 import { deviceStatus, deviceStatusOrder } from '@/modules/devices/labels'
@@ -70,18 +71,23 @@ const totals = computed(() => {
 const activeLots = computed(() => lots.value.filter((lot) => lot.status === 'active').length)
 const totalDevices = computed(() => (deviceCounts.value ? Object.values(deviceCounts.value).reduce((sum, value) => sum + value, 0) : 0))
 
-async function loadLots(): Promise<void> {
+// A silent reload (from live updates) keeps the current figures on screen.
+async function loadLots(silent = false): Promise<void> {
   if (!can('parking.view')) {
     return
   }
 
-  lotsState.value = 'loading'
+  if (!silent) {
+    lotsState.value = 'loading'
+  }
 
   try {
     lots.value = (await listParkingLots({ per_page: 100 })).items
     lotsState.value = 'ready'
   } catch {
-    lotsState.value = 'error'
+    if (!silent) {
+      lotsState.value = 'error'
+    }
   }
 }
 
@@ -121,6 +127,14 @@ async function loadHealth(): Promise<void> {
 onMounted(() => {
   void Promise.all([loadLots(), loadDevices(), loadHealth()])
 })
+
+// Entries, exits and space changes of any lot move the tenant channel.
+useLiveUpdates({
+  lotId: () => null,
+  onChange: () => loadLots(true),
+  enabled: () => auth.currentTenant !== null && can('parking.view'),
+  intervalMs: 10000,
+})
 </script>
 
 <template>
@@ -129,9 +143,12 @@ onMounted(() => {
       title="Panel de operación"
       :subtitle="auth.currentTenant ? `Hola, ${auth.user?.name}. Este es el estado de ${auth.currentTenant.name}.` : `Hola, ${auth.user?.name}.`"
     >
-      <template v-if="can('parking.view')" #actions>
-        <RouterLink class="vz-btn vz-btn-soft-primary" :to="{ name: 'parking-lots' }">
+      <template v-if="can('parking.view') || can('sessions.view')" #actions>
+        <RouterLink v-if="can('parking.view')" class="vz-btn vz-btn-soft-primary" :to="{ name: 'parking-lots' }">
           <i class="ri-parking-box-line" aria-hidden="true" /> Ver parqueaderos
+        </RouterLink>
+        <RouterLink v-if="can('sessions.view')" class="vz-btn vz-btn-primary" :to="{ name: 'operations' }">
+          <i class="ri-arrow-left-right-line" aria-hidden="true" /> Entradas y salidas
         </RouterLink>
       </template>
     </PageHeader>

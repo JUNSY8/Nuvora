@@ -1,5 +1,7 @@
 import type { Tone } from '@/components/ui/tones'
 import type { VehicleEvent, VehicleEventType, VehicleRelationship, VehicleStatus, VehicleType } from '@/modules/vehicles/types'
+import { formatDuration } from '@/services/format'
+import { formatMoney } from '@/services/money'
 
 export const vehicleType: Record<VehicleType, { label: string; icon: string }> = {
   car: { label: 'Automóvil', icon: 'ri-car-line' },
@@ -51,6 +53,9 @@ export const eventMeta: Record<VehicleEventType, { label: string; icon: string; 
   customer_linked: { label: 'Cliente vinculado', icon: 'ri-link', tone: 'primary' },
   relationship_changed: { label: 'Relación modificada', icon: 'ri-arrow-left-right-line', tone: 'secondary' },
   customer_unlinked: { label: 'Cliente desvinculado', icon: 'ri-link-unlink', tone: 'muted' },
+  entered: { label: 'Entrada', icon: 'ri-login-box-line', tone: 'success' },
+  exited: { label: 'Salida', icon: 'ri-logout-box-r-line', tone: 'info' },
+  session_cancelled: { label: 'Sesión anulada', icon: 'ri-close-circle-line', tone: 'muted' },
 }
 
 const fieldLabels: Record<string, string> = {
@@ -80,7 +85,7 @@ export function describeEvent(event: VehicleEvent): string {
 
   switch (event.type) {
     case 'registered':
-      return `Placa ${text(data.plate)} (${text(data.country)}) como ${vehicleType[data.type as VehicleType]?.label.toLowerCase() ?? text(data.type)}.`
+      return `Placa ${text(data.plate)} (${text(data.country)}) como ${vehicleType[data.type as VehicleType]?.label.toLowerCase() ?? text(data.type)}${data.source === 'entry' ? ', al ingresar como visitante.' : '.'}`
     case 'updated': {
       const changes = (data.changes ?? {}) as Record<string, unknown>
 
@@ -96,5 +101,14 @@ export function describeEvent(event: VehicleEvent): string {
       return `${text(data.customer_name)} pasó de ${relationshipLabel(data.from)} a ${relationshipLabel(data.to)}.`
     case 'customer_unlinked':
       return `${text(data.customer_name)} dejó de ser ${relationshipLabel(data.relationship)}${data.reason === 'ownership_transferred' ? ' por transferencia de propiedad.' : '.'}`
+    case 'entered':
+      return data.space_code ? `Ingresó al espacio ${text(data.space_code)}.` : 'Ingresó sin espacio asignado.'
+    case 'exited': {
+      const charged = typeof data.total_amount === 'number' && typeof data.currency === 'string' ? ` Valor: ${formatMoney(data.total_amount, data.currency)}.` : ''
+
+      return `Salió${data.space_code ? ` del espacio ${text(data.space_code)}` : ''} tras ${formatDuration(typeof data.duration_minutes === 'number' ? data.duration_minutes : null)}.${charged}`
+    }
+    case 'session_cancelled':
+      return `Sesión anulada: ${text(data.reason)}`
   }
 }

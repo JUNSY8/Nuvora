@@ -179,6 +179,9 @@ onMounted(() => {
         <template #actions>
           <PlateChip :plate="vehicle.plate" :country="vehicle.country" size="lg" />
           <StatusBadge :label="vehicleStatus[vehicle.status].label" :tone="vehicleStatus[vehicle.status].tone" :icon="vehicleStatus[vehicle.status].icon" />
+          <RouterLink v-if="can('sessions.view')" class="vz-btn vz-btn-light" :to="{ name: 'sessions', query: { search: vehicle.plate } }">
+            <i class="ri-history-line" aria-hidden="true" /> Estancias
+          </RouterLink>
           <button v-if="can('vehicles.update')" class="vz-btn vz-btn-light" type="button" @click="editing = true">
             <i class="ri-edit-2-line" aria-hidden="true" /> Editar
           </button>

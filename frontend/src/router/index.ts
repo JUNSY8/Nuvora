@@ -50,6 +50,24 @@ export const router = createRouter({
           meta: { title: 'Panel de operación' },
         },
         {
+          path: 'operacion',
+          name: 'operations',
+          component: () => import('@/modules/sessions/OperationsView.vue'),
+          meta: { title: 'Entradas y salidas' },
+        },
+        {
+          path: 'sesiones',
+          name: 'sessions',
+          component: () => import('@/modules/sessions/SessionsHistoryView.vue'),
+          meta: { title: 'Historial de sesiones' },
+        },
+        {
+          path: 'tarifas',
+          name: 'tariffs',
+          component: () => import('@/modules/tariffs/TariffsView.vue'),
+          meta: { title: 'Tarifas' },
+        },
+        {
           path: 'parqueaderos',
           name: 'parking-lots',
           component: () => import('@/modules/parking/ParkingLotsView.vue'),
