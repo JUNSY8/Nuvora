@@ -20,6 +20,8 @@ docker compose exec app php artisan migrate --seed
 
 La interfaz queda en `http://localhost:5173` y la API en `http://localhost:8080`. Mailpit queda en `http://localhost:8025`.
 
+Adminer, para ver y consultar la base desde el navegador, queda en `http://localhost:8081`. Usa sistema `PostgreSQL`, servidor `postgres`, usuario `nuvora`, base `nuvora` y la contraseña `DB_PASSWORD` del `.env` (`nuvora_local_dev` si no está definida). Solo escucha en `127.0.0.1` y es una herramienta de desarrollo: no va a producción. Las tablas con RLS se ven completas porque el rol local es dueño de las tablas (ver ADR-012).
+
 La cuenta de desarrollo que crea el seeder, solo con `APP_ENV=local`, es `admin@nuvora.test` con la contraseña `password`. Esa cuenta queda verificada y como propietaria de la empresa `Nuvora Demo`, con el parqueadero `Sede Centro` (4 zonas, 74 espacios, 2 puertas y 5 dispositivos), 6 clientes (personas, una empresa y un corporativo), 7 vehículos (uno bloqueado) y 9 vehículos dentro del parqueadero, uno de ellos sin espacio asignado. Los espacios ocupados vienen de sesiones reales, así que se liberan registrando la salida en `Entradas y salidas`. Si un espacio de la demo está fuera de servicio, el seeder omite esa entrada.
 
 El servicio `frontend` vigila los archivos por sondeo (`VITE_USE_POLLING`), porque el volumen montado desde Windows o macOS no avisa los cambios dentro del contenedor. No ejecutes otro `vite` en el host en el puerto 5173: el navegador puede terminar en cualquiera de los dos. `FRONTEND_URL` apunta a la interfaz que recibe los enlaces de restablecimiento; la verificación de correo llega a la API y redirige a esa interfaz.
