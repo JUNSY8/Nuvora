@@ -34,7 +34,7 @@ final class MembershipCalendar
      * one whose next period would already be over) starts a new cycle today
      * instead of charging for days it could not use.
      */
-    public function openNextPeriod(Membership $membership, DateTimeImmutable $today, string $origin, ?string $actorUserId): MembershipPeriod
+    public function openNextPeriod(Membership $membership, DateTimeImmutable $today, string $origin, ?string $actorUserId, ?string $idempotencyKey = null): MembershipPeriod
     {
         $anchor = $membership->anchor_on;
         $index = $membership->periods_count;
@@ -61,10 +61,10 @@ final class MembershipCalendar
             'status_reason' => $suspended ? $membership->status_reason : null,
         ])->save();
 
-        return $this->record($membership, $start, $end, $origin, $actorUserId);
+        return $this->record($membership, $start, $end, $origin, $actorUserId, $idempotencyKey);
     }
 
-    public function record(Membership $membership, DateTimeImmutable $start, DateTimeImmutable $end, string $origin, ?string $actorUserId): MembershipPeriod
+    public function record(Membership $membership, DateTimeImmutable $start, DateTimeImmutable $end, string $origin, ?string $actorUserId, ?string $idempotencyKey = null): MembershipPeriod
     {
         $sequence = (int) MembershipPeriod::query()->where('membership_id', $membership->id)->max('sequence') + 1;
 
@@ -79,6 +79,7 @@ final class MembershipCalendar
             'status' => 'due',
             'origin' => $origin,
             'created_by' => $actorUserId,
+            'idempotency_key' => $idempotencyKey,
         ]);
     }
 

@@ -10,6 +10,7 @@ use App\Modules\Memberships\Infrastructure\Persistence\Membership;
 use App\Modules\Memberships\Infrastructure\Persistence\MembershipPeriod;
 use App\Modules\Memberships\Infrastructure\Persistence\MembershipPlan;
 use App\Modules\Memberships\Infrastructure\Persistence\MembershipVehicle;
+use App\Modules\Vehicles\Application\VehicleDirectory;
 
 final class MembershipPayload
 {
@@ -46,12 +47,18 @@ final class MembershipPayload
     public static function many(string $tenantId, iterable $memberships, bool $withHistory = false): array
     {
         $customerIds = [];
+        $vehicleIds = [];
 
         foreach ($memberships as $membership) {
             $customerIds[(string) $membership->customer_id] = true;
+
+            foreach ($membership->vehicles as $vehicle) {
+                $vehicleIds[(string) $vehicle->vehicle_id] = true;
+            }
         }
 
         $customers = app(CustomerDirectory::class)->summaries($tenantId, array_keys($customerIds));
+        $vehicles = app(VehicleDirectory::class)->summaries($tenantId, array_keys($vehicleIds));
         $items = [];
 
         foreach ($memberships as $membership) {
@@ -78,6 +85,8 @@ final class MembershipPayload
                 'vehicles' => $membership->vehicles->map(fn (MembershipVehicle $vehicle): array => [
                     'id' => $vehicle->vehicle_id,
                     'plate' => $vehicle->plate,
+                    'country' => $vehicles[(string) $vehicle->vehicle_id]['country'] ?? null,
+                    'type' => $vehicles[(string) $vehicle->vehicle_id]['type'] ?? null,
                     'added_at' => $vehicle->added_at->toIso8601String(),
                 ])->values()->all(),
                 'notes' => $membership->notes,

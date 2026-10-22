@@ -92,6 +92,8 @@ class MembershipsTest extends TestCase
             ->assertJsonPath('data.membership.assigned_space.code', 'M-01')
             ->assertJsonPath('data.membership.periods.0.status', 'due')
             ->assertJsonPath('data.membership.periods.0.origin', 'subscription')
+            ->assertJsonPath('data.membership.vehicles.0.country', 'CO')
+            ->assertJsonPath('data.membership.vehicles.0.type', 'car')
             ->assertJsonCount(2, 'data.membership.vehicles')
             ->json('data.membership');
         $this->assertMatchesRegularExpression('/^M-[2-9A-Z]{6}$/', $membership['code']);
@@ -143,6 +145,7 @@ class MembershipsTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('data.session.space.code', 'M-01')
             ->assertJsonPath('data.session.membership.code', $membership['code'])
+            ->assertJsonPath('data.session.customer.id', $customer)
             ->assertJsonPath('data.notices.0.type', 'info')
             ->json('data.session.id');
 
@@ -173,7 +176,10 @@ class MembershipsTest extends TestCase
             ->assertJsonPath('data.notices.0.type', 'warning');
 
         $this->actingAs($owner)->getJson("/api/v1/parking-sessions/summary?lot_id={$lot}")
-            ->assertOk()->assertJsonPath('data.charged_today', 0)->assertJsonPath('data.exits_today', 1);
+            ->assertOk()->assertJsonPath('data.charged_today', 0)->assertJsonPath('data.exits_today', 1)->assertJsonPath('data.covered_today', 1);
+
+        $exited = DB::table('vehicle_events')->where('type', 'exited')->value('data');
+        $this->assertSame('covered', json_decode((string) $exited, true)['charge_status']);
     }
 
     public function test_suspension_cancellation_and_renewal(): void
@@ -205,6 +211,11 @@ class MembershipsTest extends TestCase
             ->assertJsonPath('data.membership.periods.0.sequence', 2)
             ->assertJsonPath('data.membership.periods.0.starts_on', '2026-12-01')
             ->assertJsonPath('data.membership.periods.0.origin', 'renewal');
+
+        // A repeated renewal (double click, retry) does not open a second period to charge.
+        $this->actingAs($owner)->postJson("/api/v1/memberships/{$membership}/renew")
+            ->assertStatus(409)->assertJsonPath('error.code', 'ALREADY_RENEWED');
+        $this->assertSame(2, DB::table('membership_periods')->where('membership_id', $membership)->count());
 
         $this->actingAs($owner)->postJson("/api/v1/memberships/{$membership}/cancel", ['reason' => 'Se mudó'])
             ->assertOk()->assertJsonPath('data.membership.status', 'cancelled')->assertJsonPath('data.membership.ended_on', '2026-11-20');
@@ -241,11 +252,18 @@ class MembershipsTest extends TestCase
 
         // Renewed weeks later, it starts a new cycle today instead of charging days it could not use.
         $this->travelTo(CarbonImmutable::parse('2026-12-20 10:00:00', 'America/Bogota'));
-        $this->actingAs($owner)->postJson("/api/v1/memberships/{$manual}/renew")
+        $this->actingAs($owner)->postJson("/api/v1/memberships/{$manual}/renew", [], ['Idempotency-Key' => 'renew-manual-1'])
             ->assertOk()
             ->assertJsonPath('data.membership.status', 'active')
             ->assertJsonPath('data.membership.current_period_start', '2026-12-20')
             ->assertJsonPath('data.membership.current_period_end', '2027-01-19');
+
+        // The same attempt repeated (double click, retry after a timeout) changes nothing.
+        $this->actingAs($owner)->postJson("/api/v1/memberships/{$manual}/renew", [], ['Idempotency-Key' => 'renew-manual-1'])
+            ->assertOk()
+            ->assertJsonPath('data.membership.current_period_end', '2027-01-19');
+        $this->assertSame(2, DB::table('membership_periods')->where('membership_id', $manual)->count());
+        $this->assertSame(1, DB::table('audit_logs')->where('action', 'membership.renewed')->where('resource_id', $manual)->count());
     }
 
     public function test_memberships_are_isolated_and_need_their_permissions(): void

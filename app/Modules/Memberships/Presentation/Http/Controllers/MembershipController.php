@@ -16,6 +16,7 @@ use App\Modules\Memberships\Infrastructure\Persistence\Membership;
 use App\Modules\Memberships\Infrastructure\Persistence\MembershipPlan;
 use App\Modules\Memberships\Presentation\Http\MembershipPayload;
 use App\Modules\Memberships\Presentation\Http\Requests\PlanRequest;
+use App\Modules\Memberships\Presentation\Http\Requests\RenewRequest;
 use App\Modules\Memberships\Presentation\Http\Requests\SubscriptionRequest;
 use App\Modules\Shared\Presentation\Http\Concerns\ResolvesActor;
 use App\Modules\Shared\Presentation\Http\Responses\ApiResponse;
@@ -134,9 +135,9 @@ final class MembershipController
         return $this->respond($request, $updated, 200, $context);
     }
 
-    public function renew(Request $request, string $membership, ChangeMembership $change, TenantContext $context): JsonResponse
+    public function renew(RenewRequest $request, string $membership, ChangeMembership $change, TenantContext $context): JsonResponse
     {
-        return $this->respond($request, $change->renew($this->actorId($request), (string) $context->id(), $membership), 200, $context);
+        return $this->respond($request, $change->renew($this->actorId($request), (string) $context->id(), $membership, $request->idempotencyKey()), 200, $context);
     }
 
     public function suspend(Request $request, string $membership, ChangeMembership $change, TenantContext $context): JsonResponse

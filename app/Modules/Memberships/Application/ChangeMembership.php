@@ -26,17 +26,51 @@ final class ChangeMembership
         private readonly RecordAuditEvent $audit,
     ) {}
 
-    public function renew(string $actorUserId, string $tenantId, string $membershipId): Membership
+    /**
+     * Opens one more period to charge. A retry with the same idempotency key
+     * returns the membership as the first attempt left it; without a key,
+     * a membership already renewed ahead is not renewed again.
+     */
+    public function renew(string $actorUserId, string $tenantId, string $membershipId, ?string $idempotencyKey = null): Membership
     {
-        return $this->change($actorUserId, $tenantId, $membershipId, 'membership.renewed', function (Membership $membership) use ($actorUserId, $tenantId): array {
+        $this->authorizer->assert($actorUserId, $tenantId, Permission::MEMBERSHIPS_MANAGE);
+
+        [$membership, $period] = DB::transaction(function () use ($actorUserId, $tenantId, $membershipId, $idempotencyKey): array {
+            $membership = $this->lookup->find($tenantId, $membershipId, lock: true);
+
+            if ($idempotencyKey !== null && $membership->periods()->where('idempotency_key', $idempotencyKey)->exists()) {
+                return [$membership, null];
+            }
+
             if ($membership->status === MembershipStatus::Cancelled) {
                 throw self::notChangeable($membership);
             }
 
-            $period = $this->calendar->openNextPeriod($membership, $this->calendar->today($tenantId), 'renewal', $actorUserId);
+            $today = $this->calendar->today($tenantId);
+            $latest = $membership->periods()->first();
 
-            return ['period' => $period->sequence, 'starts_on' => $period->starts_on->format('Y-m-d'), 'ends_on' => $period->ends_on->format('Y-m-d')];
+            // At most one period ahead of the one in course.
+            if ($latest !== null && $latest->starts_on->format('Y-m-d') > $today->format('Y-m-d')) {
+                throw new MembershipRuleViolation(
+                    "La mensualidad {$membership->code} ya está renovada hasta el {$latest->ends_on->format('Y-m-d')}.",
+                    'ALREADY_RENEWED',
+                    409,
+                );
+            }
+
+            return [$membership, $this->calendar->openNextPeriod($membership, $today, 'renewal', $actorUserId, $idempotencyKey)];
         });
+
+        if ($period !== null) {
+            $this->audit->record('membership.renewed', 'membership', (string) $membership->id, $tenantId, $actorUserId, [
+                'code' => $membership->code,
+                'period' => $period->sequence,
+                'starts_on' => $period->starts_on->format('Y-m-d'),
+                'ends_on' => $period->ends_on->format('Y-m-d'),
+            ]);
+        }
+
+        return $membership;
     }
 
     public function suspend(string $actorUserId, string $tenantId, string $membershipId, string $reason): Membership

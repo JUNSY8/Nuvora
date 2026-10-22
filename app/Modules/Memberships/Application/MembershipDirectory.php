@@ -26,7 +26,7 @@ final class MembershipDirectory
      * The membership of an arriving vehicle and whether it covers this
      * arrival, or null when the vehicle has none.
      *
-     * @return array{membership: array{id: string, code: string, plan: string, assigned_lot_id: string|null, assigned_space_id: string|null, zone_ids: list<string>}, decision: AccessDecision}|null
+     * @return array{membership: array{id: string, code: string, plan: string, customer_id: string, assigned_lot_id: string|null, assigned_space_id: string|null, zone_ids: list<string>}, decision: AccessDecision}|null
      */
     public function accessFor(string $tenantId, string $lotId, string $timezone, string $vehicleId, VehicleType $vehicleType, DateTimeImmutable $at): ?array
     {
@@ -54,6 +54,7 @@ final class MembershipDirectory
                 'id' => (string) $membership->id,
                 'code' => $membership->code,
                 'plan' => $membership->plan->name,
+                'customer_id' => (string) $membership->customer_id,
                 'assigned_lot_id' => $membership->assigned_lot_id === null ? null : (string) $membership->assigned_lot_id,
                 'assigned_space_id' => $membership->assigned_space_id === null ? null : (string) $membership->assigned_space_id,
                 'zone_ids' => $rules->zoneIds,
