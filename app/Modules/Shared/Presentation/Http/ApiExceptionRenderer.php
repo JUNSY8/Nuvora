@@ -10,7 +10,9 @@ use App\Modules\Identity\Domain\EmailNotVerified;
 use App\Modules\Identity\Domain\InvalidCredentials;
 use App\Modules\Identity\Domain\PasswordResetThrottled;
 use App\Modules\Parking\Domain\ParkingRuleViolation;
+use App\Modules\ParkingSessions\Domain\SessionRuleViolation;
 use App\Modules\Shared\Presentation\Http\Responses\ApiResponse;
+use App\Modules\Tariffs\Domain\TariffRuleViolation;
 use App\Modules\Tenancy\Domain\MembershipRuleViolation;
 use App\Modules\Tenancy\Domain\PermissionDenied;
 use App\Modules\Tenancy\Domain\TenantContextMissing;
@@ -158,6 +160,19 @@ final class ApiExceptionRenderer
                 code: $exception->errorCode,
                 message: $exception->getMessage(),
                 status: 422,
+                request: $request,
+            );
+        });
+
+        $exceptions->render(function (SessionRuleViolation|TariffRuleViolation $exception, Request $request) {
+            if (! self::wantsJson($request)) {
+                return null;
+            }
+
+            return ApiResponse::error(
+                code: $exception->errorCode,
+                message: $exception->getMessage(),
+                status: $exception->status,
                 request: $request,
             );
         });

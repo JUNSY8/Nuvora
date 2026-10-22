@@ -47,6 +47,18 @@ return Application::configure(basePath: dirname(__DIR__))
                 ->prefix('api/v1')
                 ->group(base_path('app/Modules/Vehicles/Presentation/Routes/api.php'));
 
+            Route::middleware('web')
+                ->prefix('api/v1')
+                ->group(base_path('app/Modules/ParkingSessions/Presentation/Routes/api.php'));
+
+            Route::middleware('web')
+                ->prefix('api/v1')
+                ->group(base_path('app/Modules/Tariffs/Presentation/Routes/api.php'));
+
+            Route::middleware('web')
+                ->prefix('api/v1')
+                ->group(base_path('app/Modules/Shared/Presentation/Routes/live.php'));
+
             require base_path('app/Modules/Shared/Presentation/Routes/health.php');
         },
     )

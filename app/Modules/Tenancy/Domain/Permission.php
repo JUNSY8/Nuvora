@@ -44,9 +44,19 @@ final class Permission
 
     public const VEHICLES_UPDATE = 'vehicles.update';
 
+    public const SESSIONS_VIEW = 'sessions.view';
+
     public const SESSIONS_CREATE = 'sessions.create';
 
     public const SESSIONS_CLOSE = 'sessions.close';
+
+    public const SESSIONS_CANCEL = 'sessions.cancel';
+
+    public const SESSIONS_DISCOUNT = 'sessions.discount';
+
+    public const TARIFFS_VIEW = 'tariffs.view';
+
+    public const TARIFFS_MANAGE = 'tariffs.manage';
 
     public const PAYMENTS_VIEW = 'payments.view';
 
@@ -81,8 +91,13 @@ final class Permission
             self::VEHICLES_VIEW,
             self::VEHICLES_CREATE,
             self::VEHICLES_UPDATE,
+            self::SESSIONS_VIEW,
             self::SESSIONS_CREATE,
             self::SESSIONS_CLOSE,
+            self::SESSIONS_CANCEL,
+            self::SESSIONS_DISCOUNT,
+            self::TARIFFS_VIEW,
+            self::TARIFFS_MANAGE,
             self::PAYMENTS_VIEW,
             self::PAYMENTS_CREATE,
             self::PAYMENTS_REFUND,
