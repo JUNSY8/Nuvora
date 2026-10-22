@@ -29,7 +29,12 @@ final class DeleteParkingZone
             throw new ParkingRuleViolation($message, 'ZONE_HAS_SPACES');
         }
 
-        ForeignKeyGuard::delete(fn () => $zone->delete(), $message, 'ZONE_HAS_SPACES');
+        // Tariff versions keep a restrictive reference to the zone they priced.
+        ForeignKeyGuard::delete(
+            fn () => $zone->delete(),
+            'La zona tiene espacios o tarifas asociadas. Márcala inactiva en lugar de eliminarla.',
+            'ZONE_IN_USE',
+        );
 
         $this->audit->record(
             action: 'parking_zone.deleted',

@@ -8,6 +8,7 @@ use App\Modules\Audit\Application\RecordAuditEvent;
 use App\Modules\Parking\Domain\ParkingRuleViolation;
 use App\Modules\Parking\Domain\SpaceStatus;
 use App\Modules\Parking\Infrastructure\Persistence\ParkingSpace;
+use App\Modules\Shared\Infrastructure\Realtime\LiveUpdates;
 use App\Modules\Tenancy\Application\TenantAuthorizer;
 use App\Modules\Tenancy\Domain\Permission;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,7 @@ final class ChangeParkingSpaceStatus
         private readonly TenantAuthorizer $authorizer,
         private readonly ParkingLookup $lookup,
         private readonly RecordAuditEvent $audit,
+        private readonly LiveUpdates $live,
     ) {}
 
     /**
@@ -72,6 +74,8 @@ final class ChangeParkingSpaceStatus
                     'reason' => $reason === '' ? null : $reason,
                 ],
             );
+
+            $this->live->touch(LiveUpdates::tenant($tenantId), LiveUpdates::lot($tenantId, (string) $space->parking_lot_id));
         }
 
         return $space->load('zone:id,name,code');

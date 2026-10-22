@@ -24,8 +24,8 @@ final class DeleteParkingGate
 
         ForeignKeyGuard::delete(
             fn () => $gate->delete(),
-            'La puerta tiene dispositivos asociados. Desvincúlalos o retíralos primero.',
-            'GATE_HAS_DEVICES',
+            'La puerta tiene dispositivos asociados o sesiones registradas. Retira los dispositivos o márcala inactiva.',
+            'GATE_IN_USE',
         );
 
         $this->audit->record(

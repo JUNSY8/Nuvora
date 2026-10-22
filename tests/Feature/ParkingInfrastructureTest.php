@@ -273,7 +273,7 @@ class ParkingInfrastructureTest extends TestCase
             ->assertJsonPath('error.code', 'ZONE_HAS_SPACES');
         $this->actingAs($owner)->deleteJson("/api/v1/parking-lots/{$lot}/gates/{$gate}")
             ->assertUnprocessable()
-            ->assertJsonPath('error.code', 'GATE_HAS_DEVICES');
+            ->assertJsonPath('error.code', 'GATE_IN_USE');
         $this->actingAs($owner)->deleteJson("/api/v1/parking-lots/{$lot}")
             ->assertUnprocessable()
             ->assertJsonPath('error.code', 'PARKING_LOT_NOT_EMPTY');
