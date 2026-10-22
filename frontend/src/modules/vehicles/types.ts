@@ -15,6 +15,8 @@ export type VehicleEventType =
   | 'exited'
   | 'session_cancelled'
   | 'reserved'
+  | 'membership_added'
+  | 'membership_removed'
 
 export interface VehicleLink {
   id: string

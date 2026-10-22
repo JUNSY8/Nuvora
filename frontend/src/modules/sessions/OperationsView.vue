@@ -21,7 +21,7 @@ import ExitDialog from '@/modules/sessions/ExitDialog.vue'
 import { LONG_STAY_MINUTES } from '@/modules/sessions/labels'
 import UpcomingArrivals from '@/modules/reservations/UpcomingArrivals.vue'
 import MoveSpaceModal from '@/modules/sessions/MoveSpaceModal.vue'
-import type { OperationsSummary, ParkingSession, SessionResult } from '@/modules/sessions/types'
+import type { OperationsSummary, ParkingSession, SessionNotice, SessionResult } from '@/modules/sessions/types'
 import PlateChip from '@/modules/vehicles/PlateChip.vue'
 import { vehicleType } from '@/modules/vehicles/labels'
 import { formatDuration, formatNumber, formatTime, minutesSince } from '@/services/format'
@@ -50,6 +50,8 @@ const refreshes = ref(0)
 const search = ref('')
 const debouncedSearch = refDebounced(search, 300)
 const lastEntry = ref<ParkingSession | null>(null)
+// What the entry answered about the vehicle (membership covered or not).
+const lastNotices = ref<SessionNotice[]>([])
 const now = ref(Date.now())
 
 const exiting = ref<ParkingSession | null>(null)
@@ -58,6 +60,15 @@ const cancelling = ref<ParkingSession | null>(null)
 
 const timezone = computed(() => summary.value?.lot.timezone ?? auth.currentTenant?.timezone ?? 'America/Bogota')
 const operating = computed(() => summary.value?.lot.status === 'active')
+const chargeHint = computed(() => {
+  const value = summary.value
+  const parts = [
+    value && value.unpriced_today > 0 ? `${value.unpriced_today} sin tarifa` : '',
+    value && value.covered_today > 0 ? `${value.covered_today} por mensualidad` : '',
+  ].filter(Boolean)
+
+  return parts.length > 0 ? `Salidas: ${parts.join(' · ')}` : 'Calculado en las salidas'
+})
 const usableGates = (direction: 'entry' | 'exit') => gates.value.filter((gate) => gate.status === 'active' && (gate.direction === direction || gate.direction === 'bidirectional'))
 const entryGates = computed(() => usableGates('entry'))
 const exitGates = computed(() => usableGates('exit'))
@@ -184,8 +195,10 @@ async function load(): Promise<void> {
 
 function onEntered(result: SessionResult): void {
   lastEntry.value = result.session
+  lastNotices.value = result.notices ?? []
   const where = (result.session.space ? `espacio ${result.session.space.code}` : 'sin espacio asignado')
     + (result.session.reservation ? `, reserva ${result.session.reservation.code}` : '')
+    + (result.session.membership ? `, mensualidad ${result.session.membership.code}` : '')
 
   if (result.replayed) {
     toasts.info(`La entrada de ${result.session.vehicle.plate} ya estaba registrada (${where}).`)
@@ -199,7 +212,11 @@ function onEntered(result: SessionResult): void {
 function onExited(result: SessionResult): void {
   exiting.value = null
   const charge = result.session.charge
-  const amount = charge?.status === 'priced' ? `Valor: ${formatMoney(charge.total, charge.currency ?? 'COP')}.` : 'Sin tarifa aplicable: no se calculó cobro.'
+  const amount = charge?.status === 'priced'
+    ? `Valor: ${formatMoney(charge.total, charge.currency ?? 'COP')}.`
+    : charge?.status === 'covered'
+      ? `Cubierta por la mensualidad ${charge.membership?.code ?? ''}: sin cobro.`
+      : 'Sin tarifa aplicable: no se calculó cobro.'
   toasts.success(`Salida de ${result.session.vehicle.plate} registrada. Tiempo: ${formatDuration(result.session.duration_minutes)}. ${amount}`)
 
   if (lastEntry.value?.id === result.session.id) {
@@ -316,7 +333,7 @@ onMounted(load)
           icon="ri-money-dollar-circle-line"
           tone="success"
           :loading="!summary"
-          :hint="summary && summary.unpriced_today > 0 ? `${summary.unpriced_today} salida${summary.unpriced_today === 1 ? '' : 's'} sin tarifa` : 'Calculado en las salidas'"
+          :hint="chargeHint"
         />
       </section>
 
@@ -335,6 +352,11 @@ onMounted(load)
                 <PlateChip :plate="lastEntry.vehicle.plate" :country="lastEntry.vehicle.country" />
                 <span class="text-lg font-semibold text-vz-heading">{{ lastEntry.space ? `Espacio ${lastEntry.space.code}` : 'Sin espacio asignado' }}</span>
               </div>
+              <ul v-if="lastNotices.length > 0" class="mt-2 space-y-1 text-[13px]">
+                <li v-for="(notice, index) in lastNotices" :key="index" :class="notice.type === 'warning' ? 'text-vz-warning-text' : 'text-vz-success-text'">
+                  <i :class="notice.type === 'warning' ? 'ri-error-warning-line' : 'ri-id-card-line'" aria-hidden="true" /> {{ notice.message }}
+                </li>
+              </ul>
             </div>
             <button class="vz-btn-icon size-8 text-vz-muted hover:bg-vz-elevated hover:text-vz-topbar-item" type="button" aria-label="Ocultar" @click="lastEntry = null">
               <i class="ri-close-line" aria-hidden="true" />
@@ -385,6 +407,7 @@ onMounted(load)
                         <i :class="vehicleType[session.vehicle.type].icon" class="text-vz-muted" :title="vehicleType[session.vehicle.type].label" :aria-label="vehicleType[session.vehicle.type].label" />
                       </div>
                       <p v-if="session.reservation" class="mt-1 text-xs text-vz-primary-text"><i class="ri-calendar-check-line" aria-hidden="true" /> Reserva {{ session.reservation.code }}</p>
+                      <p v-if="session.membership" class="mt-1 text-xs text-vz-success-text" :title="session.membership.plan"><i class="ri-id-card-line" aria-hidden="true" /> Mensualidad {{ session.membership.code }}</p>
                     </td>
                     <td>
                       <span v-if="session.space" class="font-semibold text-vz-heading">{{ session.space.code }}</span>

@@ -60,6 +60,10 @@ export function describeDays(days: number[]): string {
     return 'Lunes a viernes'
   }
 
+  if (sorted.join() === '1,2,3,4,5,6') {
+    return 'Lunes a sábado'
+  }
+
   if (sorted.join() === '6,7') {
     return 'Fines de semana'
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatDuration, minutesSince, toLocalInput } from '@/services/format'
+import { formatDate, formatDuration, minutesSince, toLocalInput } from '@/services/format'
 import { newIdempotencyKey } from '@/services/idempotency'
 
 describe('formatDuration', () => {
@@ -49,5 +49,15 @@ describe('toLocalInput', () => {
 
     expect(toLocalInput(instant, 'America/Bogota')).toBe('2026-11-04T22:30')
     expect(toLocalInput(instant, 'UTC')).toBe('2026-11-05T03:30')
+  })
+})
+
+describe('formatDate', () => {
+  it('shows a local day without shifting it to another timezone', () => {
+    // The exact month text depends on the ICU data; the day must not move.
+    expect(formatDate('2026-11-01')).toMatch(/^1\D.*2026$/)
+    expect(formatDate('2026-12-31')).toMatch(/^31\D.*2026$/)
+    expect(formatDate(null)).toBe('—')
+    expect(formatDate('2026-11-01T10:00:00Z')).toBe('—')
   })
 })

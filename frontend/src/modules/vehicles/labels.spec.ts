@@ -32,4 +32,13 @@ describe('describeEvent', () => {
     expect(describeEvent(event('registered', { plate: 'ABC123', country: 'CO', type: 'car', source: 'entry' })))
       .toBe('Placa ABC123 (CO) como automóvil, al ingresar como visitante.')
   })
+
+  it('describes memberships and covered stays', () => {
+    expect(describeEvent(event('membership_added', { code: 'M-7K3M9Q', plan: 'Mensual carro' }))).toBe('Incluido en la mensualidad M-7K3M9Q (Mensual carro).')
+    expect(describeEvent(event('membership_removed', { code: 'M-7K3M9Q' }))).toBe('Retirado de la mensualidad M-7K3M9Q.')
+    expect(describeEvent(event('entered', { space_code: 'M-01', membership_code: 'M-7K3M9Q' }))).toBe('Ingresó al espacio M-01 con la mensualidad M-7K3M9Q.')
+    expect(describeEvent(event('exited', { duration_minutes: 30, total_amount: 0, currency: 'COP', charge_status: 'covered' }))).toBe('Salió tras 30 min. Cubierta por la mensualidad.')
+    expect(describeEvent(event('registered', { plate: 'ABC123', country: 'CO', type: 'car', source: 'membership' })))
+      .toBe('Placa ABC123 (CO) como automóvil, al agregarlo a una mensualidad.')
+  })
 })

@@ -99,4 +99,30 @@ describe('ExitDialog', () => {
     expect(vi.mocked(registerExit).mock.calls[0]![1]).toMatchObject({ discount_id: null })
     wrapper.unmount()
   })
+
+  it('shows a stay covered by a membership at zero and offers no discount', async () => {
+    useAuthStore().currentTenant = { id: 't1', name: 'Demo', slug: 'demo', timezone: 'America/Bogota', roles: [], permissions: ['sessions.close', 'sessions.discount', 'tariffs.view'] }
+    const member = { ...session, membership: { id: 'm1', code: 'M-7K3M9Q', plan: 'Mensual carro' } } as ParkingSession
+    vi.mocked(quoteSession).mockResolvedValue({
+      ...quote(0),
+      status: 'covered',
+      subtotal: 800000,
+      discount: 800000,
+      total: 0,
+      membership: member.membership,
+      lines: [...quote(0).lines, { type: 'membership', label: 'Mensualidad M-7K3M9Q (Mensual carro)', amount: -800000, quantity: null, unit_amount: null }],
+    })
+
+    const wrapper = mount(ExitDialog, { props: { session: null, gates: [], timezone: 'America/Bogota', now: 0 }, attachTo: document.body })
+    await wrapper.setProps({ session: member })
+    await flushPromises()
+
+    const text = document.body.textContent?.replace(/\s/g, ' ') ?? ''
+    expect(text).toContain('Cubierta por la mensualidad M-7K3M9Q')
+    expect(text).toContain('A cobrar (mensualidad)')
+    expect(text).toContain('$ 0')
+    expect(listDiscounts).not.toHaveBeenCalled()
+    expect(document.querySelector('#exit-discount')).toBeNull()
+    wrapper.unmount()
+  })
 })

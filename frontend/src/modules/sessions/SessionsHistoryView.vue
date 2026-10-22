@@ -166,6 +166,7 @@ watch(() => [filters.lot_id, filters.status, filters.from_date, filters.to_date,
                 <PlateChip v-else :plate="session.vehicle.plate" :country="session.vehicle.country" />
                 <p v-if="session.customer" class="mt-1 text-xs text-vz-muted">{{ session.customer.name }}</p>
                 <p v-if="session.reservation" class="mt-1 text-xs text-vz-primary-text"><i class="ri-calendar-check-line" aria-hidden="true" /> {{ session.reservation.code }}</p>
+                <p v-if="session.membership" class="mt-1 text-xs text-vz-success-text" :title="session.membership.plan"><i class="ri-id-card-line" aria-hidden="true" /> {{ session.membership.code }}</p>
               </td>
               <td>
                 <p class="text-vz-heading">{{ session.parking_lot.name }}</p>
@@ -193,6 +194,10 @@ watch(() => [filters.lot_id, filters.status, filters.from_date, filters.to_date,
                   <p class="text-xs text-vz-muted">
                     {{ session.charge.grace_applied ? 'Gracia' : session.charge.tariff?.name }}<template v-if="session.charge.discount_rule"> · {{ session.charge.discount_rule.name }}</template>
                   </p>
+                </template>
+                <template v-else-if="session.charge?.status === 'covered'">
+                  <span class="font-medium text-vz-success-text tabular-nums">{{ formatMoney(0, session.charge.currency ?? 'COP') }}</span>
+                  <p class="text-xs text-vz-muted" :title="`Valor de la estancia: ${formatMoney(session.charge.subtotal, session.charge.currency ?? 'COP')}`">Mensualidad {{ session.charge.membership?.code }}</p>
                 </template>
                 <span v-else-if="session.charge?.status === 'unpriced'" class="text-xs text-vz-warning-text" :title="session.charge.reason ?? ''">Sin tarifa</span>
                 <span v-else class="text-vz-muted">—</span>

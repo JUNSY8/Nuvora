@@ -95,7 +95,7 @@ export interface DiscountInput {
 }
 
 export interface PriceLine {
-  type: 'bracket' | 'step' | 'day' | 'daily_cap' | 'grace' | 'discount'
+  type: 'bracket' | 'step' | 'day' | 'daily_cap' | 'grace' | 'discount' | 'membership'
   label: string
   amount: number
   quantity: number | null
@@ -104,10 +104,12 @@ export interface PriceLine {
 
 // Answer of the pricing engine, for a quote, a simulation or a closed session.
 export interface Quote {
-  status: 'priced' | 'unpriced'
+  // Covered: a membership pays the stay; the subtotal is what the tariff would charge.
+  status: 'priced' | 'unpriced' | 'covered'
   currency: string
   tariff: { id: string; version_id: string; version: number; code: string; name: string } | null
   discount_rule: { id: string; code: string; name: string } | null
+  membership?: { id: string; code: string; plan: string } | null
   stay_minutes: number
   charged_minutes: number | null
   grace_minutes: number | null

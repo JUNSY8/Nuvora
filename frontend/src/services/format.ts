@@ -71,3 +71,13 @@ export function toLocalInput(date: Date, timeZone: string): string {
 
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`
 }
+
+// A local day the API sends as "2026-11-04" (memberships), shown as is: it
+// is already in the tenant's calendar, so no timezone conversion applies.
+export function formatDate(value: string | null): string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return '—'
+  }
+
+  return new Intl.DateTimeFormat('es-CO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`))
+}

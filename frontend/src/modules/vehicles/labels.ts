@@ -57,6 +57,8 @@ export const eventMeta: Record<VehicleEventType, { label: string; icon: string; 
   exited: { label: 'Salida', icon: 'ri-logout-box-r-line', tone: 'info' },
   session_cancelled: { label: 'Sesión anulada', icon: 'ri-close-circle-line', tone: 'muted' },
   reserved: { label: 'Reserva', icon: 'ri-calendar-check-line', tone: 'primary' },
+  membership_added: { label: 'Mensualidad', icon: 'ri-id-card-line', tone: 'success' },
+  membership_removed: { label: 'Salió de la mensualidad', icon: 'ri-id-card-line', tone: 'muted' },
 }
 
 const fieldLabels: Record<string, string> = {
@@ -86,7 +88,7 @@ export function describeEvent(event: VehicleEvent): string {
 
   switch (event.type) {
     case 'registered':
-      return `Placa ${text(data.plate)} (${text(data.country)}) como ${vehicleType[data.type as VehicleType]?.label.toLowerCase() ?? text(data.type)}${data.source === 'entry' ? ', al ingresar como visitante.' : data.source === 'reservation' ? ', al reservar.' : '.'}`
+      return `Placa ${text(data.plate)} (${text(data.country)}) como ${vehicleType[data.type as VehicleType]?.label.toLowerCase() ?? text(data.type)}${data.source === 'entry' ? ', al ingresar como visitante.' : data.source === 'reservation' ? ', al reservar.' : data.source === 'membership' ? ', al agregarlo a una mensualidad.' : '.'}`
     case 'updated': {
       const changes = (data.changes ?? {}) as Record<string, unknown>
 
@@ -104,11 +106,14 @@ export function describeEvent(event: VehicleEvent): string {
       return `${text(data.customer_name)} dejó de ser ${relationshipLabel(data.relationship)}${data.reason === 'ownership_transferred' ? ' por transferencia de propiedad.' : '.'}`
     case 'entered': {
       const reservation = data.reservation_code ? ` con la reserva ${text(data.reservation_code)}` : ''
+      const membership = data.membership_code ? `${reservation ? ' y' : ''} con la mensualidad ${text(data.membership_code)}` : ''
 
-      return data.space_code ? `Ingresó al espacio ${text(data.space_code)}${reservation}.` : `Ingresó sin espacio asignado${reservation}.`
+      return data.space_code ? `Ingresó al espacio ${text(data.space_code)}${reservation}${membership}.` : `Ingresó sin espacio asignado${reservation}${membership}.`
     }
     case 'exited': {
-      const charged = typeof data.total_amount === 'number' && typeof data.currency === 'string' ? ` Valor: ${formatMoney(data.total_amount, data.currency)}.` : ''
+      const charged = data.charge_status === 'covered'
+        ? ' Cubierta por la mensualidad.'
+        : typeof data.total_amount === 'number' && typeof data.currency === 'string' ? ` Valor: ${formatMoney(data.total_amount, data.currency)}.` : ''
 
       return `Salió${data.space_code ? ` del espacio ${text(data.space_code)}` : ''} tras ${formatDuration(typeof data.duration_minutes === 'number' ? data.duration_minutes : null)}.${charged}`
     }
@@ -116,5 +121,9 @@ export function describeEvent(event: VehicleEvent): string {
       return `Sesión anulada: ${text(data.reason)}`
     case 'reserved':
       return `Reserva ${text(data.code)} para el ${text(data.starts_local).replace(' ', ' a las ')}.`
+    case 'membership_added':
+      return `Incluido en la mensualidad ${text(data.code)}${data.plan ? ` (${text(data.plan)})` : ''}.`
+    case 'membership_removed':
+      return `Retirado de la mensualidad ${text(data.code)}.`
   }
 }

@@ -50,6 +50,8 @@ export const permissionGroups: Array<{ title: string; icon: string; permissions:
       { key: 'tariffs.manage', label: 'Configurar tarifas y descuentos' },
       { key: 'reservations.view', label: 'Ver reservas y disponibilidad' },
       { key: 'reservations.manage', label: 'Crear, confirmar y cancelar reservas' },
+      { key: 'memberships.view', label: 'Ver mensualidades y planes' },
+      { key: 'memberships.manage', label: 'Vender, renovar y cancelar mensualidades' },
       { key: 'payments.view', label: 'Ver pagos' },
       { key: 'payments.create', label: 'Cobrar' },
       { key: 'payments.refund', label: 'Reembolsar' },

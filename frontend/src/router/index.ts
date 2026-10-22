@@ -68,6 +68,12 @@ export const router = createRouter({
           meta: { title: 'Reservas' },
         },
         {
+          path: 'mensualidades',
+          name: 'memberships',
+          component: () => import('@/modules/memberships/MembershipsView.vue'),
+          meta: { title: 'Mensualidades' },
+        },
+        {
           path: 'tarifas',
           name: 'tariffs',
           component: () => import('@/modules/tariffs/TariffsView.vue'),

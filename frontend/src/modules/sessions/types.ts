@@ -32,11 +32,12 @@ export interface ParkingSession {
   notes: string | null
   charge: SessionCharge | null
   reservation: { id: string; code: string; status: string } | null
+  membership: { id: string; code: string; plan: string } | null
 }
 
 // Charge stored at the exit; amounts in minor units of currency.
 export interface SessionCharge {
-  status: 'priced' | 'unpriced'
+  status: 'priced' | 'unpriced' | 'covered'
   currency: string | null
   subtotal: number | null
   discount: number | null
@@ -45,13 +46,21 @@ export interface SessionCharge {
   grace_applied: boolean
   tariff: Quote['tariff']
   discount_rule: Quote['discount_rule']
+  membership: Quote['membership']
   lines: PriceLine[]
   reason: string | null
+}
+
+// What the operator should know about the entry (membership coverage...).
+export interface SessionNotice {
+  type: 'info' | 'warning'
+  message: string
 }
 
 export interface SessionResult {
   session: ParkingSession
   replayed: boolean
+  notices?: SessionNotice[]
 }
 
 export interface OperationsSummary {
@@ -63,6 +72,7 @@ export interface OperationsSummary {
   exits_today: number
   charged_today: number
   unpriced_today: number
+  covered_today: number
   currency: string
   cancelled_today: number
   average_stay_minutes_today: number | null

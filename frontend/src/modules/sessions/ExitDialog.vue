@@ -38,7 +38,8 @@ let attemptKey = newIdempotencyKey()
 let quoteRequest = 0
 
 const stay = computed(() => (props.session ? formatDuration(minutesSince(props.session.entry_at, props.now)) : '—'))
-const canDiscount = computed(() => can('sessions.discount') && can('tariffs.view'))
+// A stay covered by a membership takes no discount.
+const canDiscount = computed(() => can('sessions.discount') && can('tariffs.view') && !props.session?.membership)
 
 // The price shown is a preview: the exit prices again at its own moment.
 async function loadQuote(): Promise<void> {
@@ -170,7 +171,8 @@ async function onConfirm(): Promise<void> {
             :tariff="quote.tariff"
             :charged-minutes="quote.charged_minutes"
             :reason="quote.reason"
-            total-label="A cobrar"
+            :membership="quote.membership ?? null"
+            :total-label="quote.status === 'covered' ? 'A cobrar (mensualidad)' : 'A cobrar'"
           />
         </div>
 
