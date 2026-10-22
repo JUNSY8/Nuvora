@@ -10,6 +10,14 @@ use App\Modules\Devices\Application\DeviceData;
 use App\Modules\Devices\Application\RegisterDevice;
 use App\Modules\Devices\Domain\DeviceType;
 use App\Modules\Identity\Infrastructure\Persistence\User;
+use App\Modules\Memberships\Application\ChangeMembership;
+use App\Modules\Memberships\Application\MembershipPlans;
+use App\Modules\Memberships\Application\PlanData;
+use App\Modules\Memberships\Application\SellMembership;
+use App\Modules\Memberships\Application\SubscriptionData;
+use App\Modules\Memberships\Domain\BillingPeriod;
+use App\Modules\Memberships\Domain\PlanCategory;
+use App\Modules\Memberships\Infrastructure\Persistence\MembershipPlan;
 use App\Modules\Parking\Application\CreateParkingLot;
 use App\Modules\Parking\Application\CreateParkingSpaceRange;
 use App\Modules\Parking\Application\CreateParkingZone;
@@ -85,6 +93,61 @@ class DatabaseSeeder extends Seeder
         $this->seedTariffs((string) $user->id, (string) $membership->tenant_id);
         $this->seedSessions((string) $user->id, (string) $membership->tenant_id);
         $this->seedReservations((string) $user->id, (string) $membership->tenant_id);
+        $this->seedMemberships((string) $user->id, (string) $membership->tenant_id);
+    }
+
+    /**
+     * Membership plans of every kind and customers on them, relative to
+     * today: one about to end without renewal and one suspended for an
+     * unpaid period. Prices in COP minor units (100 = $1). The last spaces
+     * of the general zone become fixed spaces for memberships.
+     */
+    private function seedMemberships(string $actorId, string $tenantId): void
+    {
+        $lot = ParkingLot::query()->where('tenant_id', $tenantId)->where('code', 'CENTRO')->first();
+
+        if ($lot === null || MembershipPlan::query()->where('tenant_id', $tenantId)->exists()) {
+            return;
+        }
+
+        $lotId = (string) $lot->id;
+        ParkingSpace::query()->where('parking_lot_id', $lotId)->whereIn('code', ['A-37', 'A-38', 'A-39', 'A-40'])
+            ->update(['is_assignable' => true, 'is_reservable' => false]);
+
+        $motos = (string) ParkingZone::query()->where('parking_lot_id', $lotId)->where('code', 'MOT')->value('id');
+        $weekdays = [['days' => [1, 2, 3, 4, 5, 6], 'start' => '06:00', 'end' => '20:00']];
+
+        $plan = fn (string $code, string $name, PlanCategory $category, BillingPeriod $period, int $price, int $maxVehicles, ?int $capacity, array $zones, array $types, array $windows, string $description): string => (string) app(MembershipPlans::class)
+            ->save($actorId, $tenantId, null, new PlanData($code, $name, $category, $period, $price, 'COP', 3, $maxVehicles, $capacity, [$lotId], $zones, $types, $windows, $description))
+            ->id;
+
+        $car = $plan('CARRO-MES', 'Carro mensual', PlanCategory::Monthly, BillingPeriod::Monthly, 18000000, 1, 30, [], [VehicleType::Car, VehicleType::Van], [], 'Un carro, a cualquier hora.');
+        $moto = $plan('MOTO-MES', 'Moto mensual', PlanCategory::Monthly, BillingPeriod::Monthly, 6000000, 1, 20, $motos === '' ? [] : [$motos], [VehicleType::Motorcycle], [], 'Zona de motos.');
+        $fleet = $plan('CORP-FLOTA', 'Flota corporativa', PlanCategory::Corporate, BillingPeriod::Monthly, 65000000, 5, null, [], [VehicleType::Car, VehicleType::Van, VehicleType::Truck], $weekdays, 'Hasta cinco vehículos de la empresa, lunes a sábado de 6:00 a 20:00.');
+        $vip = $plan('VIP-ANUAL', 'VIP anual con espacio fijo', PlanCategory::Vip, BillingPeriod::Yearly, 240000000, 2, 4, [], [], [], 'Espacio asignado y dos vehículos.');
+
+        $customer = fn (string $name): string => (string) Customer::query()->where('tenant_id', $tenantId)->where('name', $name)->value('id');
+        $today = CarbonImmutable::now($lot->timezone)->startOfDay();
+        $sell = fn (string $planId, string $customerName, array $plates, int $daysAgo, bool $autoRenew = true, ?string $spaceCode = null): string => (string) app(SellMembership::class)
+            ->handle($actorId, $tenantId, new SubscriptionData(
+                planId: $planId,
+                customerId: $customer($customerName),
+                startsOn: $today->subDays($daysAgo)->toDateString(),
+                vehicles: array_map(fn (string $plate): array => ['plate' => $plate, 'country' => 'CO', 'type' => null], $plates),
+                assignedLotId: $spaceCode === null ? null : $lotId,
+                assignedSpaceId: $spaceCode === null ? null : (string) ParkingSpace::query()->where('parking_lot_id', $lotId)->where('code', $spaceCode)->value('id'),
+                autoRenew: $autoRenew,
+                notes: null,
+            ))
+            ->id;
+
+        $sell($car, 'Laura Gómez', ['KXY482'], 12);
+        $sell($moto, 'Laura Gómez', ['LMN27F'], 28, autoRenew: false);
+        $sell($fleet, 'Transportes Andinos S.A.S.', ['TAN301', 'TAN302'], 5);
+        $sell($vip, 'Grupo Empresarial Sabana', ['SAB910'], 0, spaceCode: 'A-40');
+        $suspended = $sell($car, 'Ana María Torres', ['GHT555'], 20);
+
+        app(ChangeMembership::class)->suspend($actorId, $tenantId, $suspended, 'Pago del periodo pendiente.');
     }
 
     /**
