@@ -25,11 +25,15 @@ use App\Modules\Parking\Domain\SpaceType;
 use App\Modules\Parking\Infrastructure\Persistence\ParkingGate;
 use App\Modules\Parking\Infrastructure\Persistence\ParkingLot;
 use App\Modules\Parking\Infrastructure\Persistence\ParkingSpace;
+use App\Modules\Parking\Infrastructure\Persistence\ParkingZone;
 use App\Modules\ParkingSessions\Application\EntryData;
 use App\Modules\ParkingSessions\Application\RegisterEntry;
 use App\Modules\ParkingSessions\Application\RegisterExit;
 use App\Modules\ParkingSessions\Domain\SessionRuleViolation;
 use App\Modules\ParkingSessions\Infrastructure\Persistence\ParkingSession;
+use App\Modules\Reservations\Application\CreateReservation;
+use App\Modules\Reservations\Application\ReservationData;
+use App\Modules\Reservations\Infrastructure\Persistence\Reservation;
 use App\Modules\Tariffs\Application\CreateTariff;
 use App\Modules\Tariffs\Application\DiscountData;
 use App\Modules\Tariffs\Application\SaveDiscount;
@@ -46,6 +50,7 @@ use App\Modules\Vehicles\Application\VehicleData;
 use App\Modules\Vehicles\Domain\VehicleRelationship;
 use App\Modules\Vehicles\Domain\VehicleStatus;
 use App\Modules\Vehicles\Domain\VehicleType;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
@@ -79,6 +84,45 @@ class DatabaseSeeder extends Seeder
         $this->seedCustomers((string) $user->id, (string) $membership->tenant_id);
         $this->seedTariffs((string) $user->id, (string) $membership->tenant_id);
         $this->seedSessions((string) $user->id, (string) $membership->tenant_id);
+        $this->seedReservations((string) $user->id, (string) $membership->tenant_id);
+    }
+
+    /**
+     * Upcoming reservations relative to now, in the lot's local time: a
+     * space for this afternoon, a zone for tomorrow and an unconfirmed hold.
+     */
+    private function seedReservations(string $actorId, string $tenantId): void
+    {
+        $lot = ParkingLot::query()->where('tenant_id', $tenantId)->where('code', 'CENTRO')->first();
+
+        if ($lot === null || Reservation::query()->where('tenant_id', $tenantId)->exists()) {
+            return;
+        }
+
+        $lotId = (string) $lot->id;
+        $start = CarbonImmutable::now($lot->timezone)->addHours(2)->startOfHour();
+        $space = (string) ParkingSpace::query()->where('parking_lot_id', $lotId)->where('code', 'A-30')->value('id');
+        $zone = (string) ParkingZone::query()->where('parking_lot_id', $lotId)->where('code', 'GEN')->value('id');
+
+        $book = fn (string $plate, ?VehicleType $type, ?string $zoneId, ?string $spaceId, CarbonImmutable $from, int $hours, bool $confirm) => app(CreateReservation::class)
+            ->handle($actorId, $tenantId, new ReservationData(
+                lotId: $lotId,
+                plate: $plate,
+                country: 'CO',
+                vehicleType: $type,
+                customerId: null,
+                zoneId: $zoneId,
+                spaceId: $spaceId,
+                startsAt: $from->utc(),
+                endsAt: $from->addHours($hours)->utc(),
+                confirm: $confirm,
+                notes: null,
+                idempotencyKey: null,
+            ));
+
+        $book('SAB910', null, null, $space === '' ? null : $space, $start, 3, true);
+        $book('RES204', VehicleType::Car, $zone === '' ? null : $zone, null, $start->addDay()->setTime(9, 0), 4, true);
+        $book('RES318', VehicleType::Car, null, null, $start->addHours(1), 2, false);
     }
 
     /**
