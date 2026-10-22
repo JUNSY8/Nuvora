@@ -165,6 +165,7 @@ watch(() => [filters.lot_id, filters.status, filters.from_date, filters.to_date,
                 </RouterLink>
                 <PlateChip v-else :plate="session.vehicle.plate" :country="session.vehicle.country" />
                 <p v-if="session.customer" class="mt-1 text-xs text-vz-muted">{{ session.customer.name }}</p>
+                <p v-if="session.reservation" class="mt-1 text-xs text-vz-primary-text"><i class="ri-calendar-check-line" aria-hidden="true" /> {{ session.reservation.code }}</p>
               </td>
               <td>
                 <p class="text-vz-heading">{{ session.parking_lot.name }}</p>

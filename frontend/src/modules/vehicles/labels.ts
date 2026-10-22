@@ -56,6 +56,7 @@ export const eventMeta: Record<VehicleEventType, { label: string; icon: string; 
   entered: { label: 'Entrada', icon: 'ri-login-box-line', tone: 'success' },
   exited: { label: 'Salida', icon: 'ri-logout-box-r-line', tone: 'info' },
   session_cancelled: { label: 'Sesión anulada', icon: 'ri-close-circle-line', tone: 'muted' },
+  reserved: { label: 'Reserva', icon: 'ri-calendar-check-line', tone: 'primary' },
 }
 
 const fieldLabels: Record<string, string> = {
@@ -85,7 +86,7 @@ export function describeEvent(event: VehicleEvent): string {
 
   switch (event.type) {
     case 'registered':
-      return `Placa ${text(data.plate)} (${text(data.country)}) como ${vehicleType[data.type as VehicleType]?.label.toLowerCase() ?? text(data.type)}${data.source === 'entry' ? ', al ingresar como visitante.' : '.'}`
+      return `Placa ${text(data.plate)} (${text(data.country)}) como ${vehicleType[data.type as VehicleType]?.label.toLowerCase() ?? text(data.type)}${data.source === 'entry' ? ', al ingresar como visitante.' : data.source === 'reservation' ? ', al reservar.' : '.'}`
     case 'updated': {
       const changes = (data.changes ?? {}) as Record<string, unknown>
 
@@ -101,8 +102,11 @@ export function describeEvent(event: VehicleEvent): string {
       return `${text(data.customer_name)} pasó de ${relationshipLabel(data.from)} a ${relationshipLabel(data.to)}.`
     case 'customer_unlinked':
       return `${text(data.customer_name)} dejó de ser ${relationshipLabel(data.relationship)}${data.reason === 'ownership_transferred' ? ' por transferencia de propiedad.' : '.'}`
-    case 'entered':
-      return data.space_code ? `Ingresó al espacio ${text(data.space_code)}.` : 'Ingresó sin espacio asignado.'
+    case 'entered': {
+      const reservation = data.reservation_code ? ` con la reserva ${text(data.reservation_code)}` : ''
+
+      return data.space_code ? `Ingresó al espacio ${text(data.space_code)}${reservation}.` : `Ingresó sin espacio asignado${reservation}.`
+    }
     case 'exited': {
       const charged = typeof data.total_amount === 'number' && typeof data.currency === 'string' ? ` Valor: ${formatMoney(data.total_amount, data.currency)}.` : ''
 
@@ -110,5 +114,7 @@ export function describeEvent(event: VehicleEvent): string {
     }
     case 'session_cancelled':
       return `Sesión anulada: ${text(data.reason)}`
+    case 'reserved':
+      return `Reserva ${text(data.code)} para el ${text(data.starts_local).replace(' ', ' a las ')}.`
   }
 }

@@ -59,3 +59,15 @@ export function minutesSince(value: string, now: number = Date.now()): number {
 
   return seconds <= 0 ? 0 : Math.ceil(seconds / 60)
 }
+
+// "2026-11-04T10:00" in a timezone, the format of datetime-local inputs and
+// of the local times the API accepts for reservations and simulations.
+export function toLocalInput(date: Date, timeZone: string): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value]),
+  )
+
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`
+}

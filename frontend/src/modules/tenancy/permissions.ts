@@ -48,6 +48,8 @@ export const permissionGroups: Array<{ title: string; icon: string; permissions:
       { key: 'sessions.discount', label: 'Aplicar descuentos en la salida' },
       { key: 'tariffs.view', label: 'Ver tarifas y simular cobros' },
       { key: 'tariffs.manage', label: 'Configurar tarifas y descuentos' },
+      { key: 'reservations.view', label: 'Ver reservas y disponibilidad' },
+      { key: 'reservations.manage', label: 'Crear, confirmar y cancelar reservas' },
       { key: 'payments.view', label: 'Ver pagos' },
       { key: 'payments.create', label: 'Cobrar' },
       { key: 'payments.refund', label: 'Reembolsar' },

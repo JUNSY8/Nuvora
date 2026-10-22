@@ -31,6 +31,7 @@ export interface ParkingSession {
   cancel_reason: string | null
   notes: string | null
   charge: SessionCharge | null
+  reservation: { id: string; code: string; status: string } | null
 }
 
 // Charge stored at the exit; amounts in minor units of currency.

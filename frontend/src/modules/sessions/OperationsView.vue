@@ -19,6 +19,7 @@ import CancelSessionModal from '@/modules/sessions/CancelSessionModal.vue'
 import EntryForm from '@/modules/sessions/EntryForm.vue'
 import ExitDialog from '@/modules/sessions/ExitDialog.vue'
 import { LONG_STAY_MINUTES } from '@/modules/sessions/labels'
+import UpcomingArrivals from '@/modules/reservations/UpcomingArrivals.vue'
 import MoveSpaceModal from '@/modules/sessions/MoveSpaceModal.vue'
 import type { OperationsSummary, ParkingSession, SessionResult } from '@/modules/sessions/types'
 import PlateChip from '@/modules/vehicles/PlateChip.vue'
@@ -44,6 +45,8 @@ const meta = ref<PageMeta | null>(null)
 const gates = ref<ParkingGate[]>([])
 const spaces = ref<ParkingSpace[]>([])
 const refreshing = ref(false)
+// Bumped after every reload so side panels refresh with the same live signal.
+const refreshes = ref(0)
 const search = ref('')
 const debouncedSearch = refDebounced(search, 300)
 const lastEntry = ref<ParkingSession | null>(null)
@@ -115,6 +118,7 @@ async function refresh(): Promise<void> {
     if (lotId.value === id) {
       summary.value = nextSummary
       spaces.value = nextSpaces
+      refreshes.value++
     }
   } catch (error) {
     toasts.error(parseApiError(error, 'No fue posible actualizar la operación.'))
@@ -180,7 +184,8 @@ async function load(): Promise<void> {
 
 function onEntered(result: SessionResult): void {
   lastEntry.value = result.session
-  const where = result.session.space ? `espacio ${result.session.space.code}` : 'sin espacio asignado'
+  const where = (result.session.space ? `espacio ${result.session.space.code}` : 'sin espacio asignado')
+    + (result.session.reservation ? `, reserva ${result.session.reservation.code}` : '')
 
   if (result.replayed) {
     toasts.info(`La entrada de ${result.session.vehicle.plate} ya estaba registrada (${where}).`)
@@ -318,6 +323,7 @@ onMounted(load)
       <div class="grid items-start gap-5 lg:grid-cols-3">
         <div v-if="can('sessions.create') && lotId" class="lg:sticky lg:top-[94px]">
           <EntryForm :lot-id="lotId" :gates="entryGates" :spaces="spaces" :disabled="!operating" @entered="onEntered" />
+          <UpcomingArrivals v-if="can('reservations.view')" :lot-id="lotId" :timezone="timezone" :version="refreshes" />
         </div>
 
         <div :class="can('sessions.create') ? 'lg:col-span-2' : 'lg:col-span-3'">
@@ -378,6 +384,7 @@ onMounted(load)
                         <PlateChip :plate="session.vehicle.plate" :country="session.vehicle.country" />
                         <i :class="vehicleType[session.vehicle.type].icon" class="text-vz-muted" :title="vehicleType[session.vehicle.type].label" :aria-label="vehicleType[session.vehicle.type].label" />
                       </div>
+                      <p v-if="session.reservation" class="mt-1 text-xs text-vz-primary-text"><i class="ri-calendar-check-line" aria-hidden="true" /> Reserva {{ session.reservation.code }}</p>
                     </td>
                     <td>
                       <span v-if="session.space" class="font-semibold text-vz-heading">{{ session.space.code }}</span>

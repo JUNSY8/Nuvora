@@ -10,26 +10,16 @@ import PriceBreakdown from '@/modules/tariffs/PriceBreakdown.vue'
 import type { Discount, Quote } from '@/modules/tariffs/types'
 import { vehicleType, vehicleTypeOrder } from '@/modules/vehicles/labels'
 import type { VehicleType } from '@/modules/vehicles/types'
+import { toLocalInput } from '@/services/format'
 
 const props = defineProps<{ lot: ParkingLot; zones: ParkingZone[]; discounts: Discount[] }>()
-
-// "2026-11-04T10:00" in the lot's clock, the format of datetime-local inputs.
-function localInput(date: Date, timeZone: string): string {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-      .formatToParts(date)
-      .map((part) => [part.type, part.value]),
-  )
-
-  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`
-}
 
 const now = new Date()
 const form = ref<{ vehicle_type: VehicleType; zone_id: string; entry_at: string; exit_at: string; discount_id: string }>({
   vehicle_type: 'car',
   zone_id: '',
-  entry_at: localInput(now, props.lot.timezone),
-  exit_at: localInput(new Date(now.getTime() + 150 * 60000), props.lot.timezone),
+  entry_at: toLocalInput(now, props.lot.timezone),
+  exit_at: toLocalInput(new Date(now.getTime() + 150 * 60000), props.lot.timezone),
   discount_id: '',
 })
 const quote = ref<Quote | null>(null)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatDuration, minutesSince } from '@/services/format'
+import { formatDuration, minutesSince, toLocalInput } from '@/services/format'
 import { newIdempotencyKey } from '@/services/idempotency'
 
 describe('formatDuration', () => {
@@ -40,5 +40,14 @@ describe('newIdempotencyKey', () => {
     for (const key of keys) {
       expect(key).toMatch(/^[A-Za-z0-9_\-:.]{8,80}$/)
     }
+  })
+})
+
+describe('toLocalInput', () => {
+  it('writes the wall clock of the lot, not of the browser', () => {
+    const instant = new Date('2026-11-05T03:30:00Z')
+
+    expect(toLocalInput(instant, 'America/Bogota')).toBe('2026-11-04T22:30')
+    expect(toLocalInput(instant, 'UTC')).toBe('2026-11-05T03:30')
   })
 })

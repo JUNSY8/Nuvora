@@ -62,6 +62,12 @@ export const router = createRouter({
           meta: { title: 'Historial de sesiones' },
         },
         {
+          path: 'reservas',
+          name: 'reservations',
+          component: () => import('@/modules/reservations/ReservationsView.vue'),
+          meta: { title: 'Reservas' },
+        },
+        {
           path: 'tarifas',
           name: 'tariffs',
           component: () => import('@/modules/tariffs/TariffsView.vue'),
