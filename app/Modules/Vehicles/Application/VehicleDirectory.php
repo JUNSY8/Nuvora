@@ -99,6 +99,33 @@ final class VehicleDirectory
     }
 
     /**
+     * Current plate, country and type of the given vehicles, keyed by id.
+     *
+     * @param  list<string>  $vehicleIds
+     * @return array<string, array{id: string, plate: string, country: string, type: string}>
+     */
+    public function summaries(string $tenantId, array $vehicleIds): array
+    {
+        if ($vehicleIds === []) {
+            return [];
+        }
+
+        return Vehicle::query()
+            ->where('tenant_id', $tenantId)
+            ->whereIn('id', $vehicleIds)
+            ->get(['id', 'plate', 'country', 'type'])
+            ->mapWithKeys(fn (Vehicle $vehicle): array => [
+                (string) $vehicle->id => [
+                    'id' => (string) $vehicle->id,
+                    'plate' => $vehicle->plate,
+                    'country' => $vehicle->country,
+                    'type' => $vehicle->type->value,
+                ],
+            ])
+            ->all();
+    }
+
+    /**
      * Appends a parking stay to the vehicle timeline.
      *
      * @param  array<string, mixed>  $data
