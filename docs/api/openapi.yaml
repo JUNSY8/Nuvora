@@ -1,11 +1,11 @@
 openapi: 3.0.3
 info:
   title: Nuvora API
-  version: 0.6.0
+  version: 0.7.0
   description: |
     Contrato de salud, identidad, empresas (tenancy), auditoría, infraestructura de
     parqueaderos, registro de dispositivos, clientes, vehículos, sesiones de parqueo,
-    tarifas y descuentos.
+    tarifas, descuentos y reservas.
 
     El dinero viaja como entero en la unidad menor de la moneda (ISO 4217): 5.000 COP es
     500000. Los pesos colombianos se cobran enteros, así que sus montos son múltiplos de 100.
@@ -31,6 +31,7 @@ tags:
   - name: Vehículos
   - name: Sesiones
   - name: Tarifas
+  - name: Reservas
   - name: Tiempo real
 paths:
   /health/live:
@@ -920,7 +921,7 @@ paths:
                 notes: { type: string, maxLength: 500, nullable: true }
                 discount_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Descuento manual del catálogo (sessions.discount)" }
       responses:
-        "200": { description: "`data.session` cerrada con `duration_minutes` (minutos iniciados), `charge` (`SessionCharge`) y `data.replayed`" }
+        "200": { description: "`data.session` cerrada con `duration_minutes` (minutos iniciados), `charge` (`SessionCharge`) y `data.replayed`; una reserva en curso queda cumplida" }
         "403": { description: "Descuento sin el permiso sessions.discount (FORBIDDEN)" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { description: "Clave reutilizada para otra sesión (IDEMPOTENCY_KEY_REUSED)" }
@@ -1108,6 +1109,126 @@ paths:
       responses:
         "200": { description: "`data.discount`" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/reservations:
+    get:
+      tags: [Reservas]
+      summary: Reservas, las más próximas primero (reservations.view)
+      parameters:
+        - { name: lot_id, in: query, schema: { $ref: "#/components/schemas/Ulid" }, description: "Requerido con from_date/to_date" }
+        - { name: "status[]", in: query, schema: { type: array, items: { $ref: "#/components/schemas/ReservationStatus" } } }
+        - { name: search, in: query, schema: { type: string, maxLength: 20 }, description: "Placa sin separadores o código (R-7K3M9Q)" }
+        - { name: from_date, in: query, schema: { type: string, format: date }, description: "Día local de llegada" }
+        - { name: to_date, in: query, schema: { type: string, format: date } }
+        - { name: vehicle_id, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+        - { $ref: "#/components/parameters/Page" }
+      responses:
+        "200": { description: "`data.items` (Reservation) y `data.meta`" }
+    post:
+      tags: [Reservas]
+      summary: Reservar un espacio, una zona o cualquier espacio del parqueadero (reservations.manage)
+      description: |
+        Las reservas de un parqueadero se serializan y PostgreSQL rechaza con restricciones de
+        exclusión un espacio o un vehículo reservado dos veces para ventanas que se cruzan.
+        Sin `confirm` (o `confirm: false`) la reserva queda `pending` y retiene el cupo hasta
+        `hold_expires_at`. El precio se estima con las tarifas vigentes al inicio.
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lot_id, plate, country, starts_at, ends_at]
+              properties:
+                lot_id: { $ref: "#/components/schemas/Ulid" }
+                plate: { type: string, maxLength: 20 }
+                country: { type: string, minLength: 2, maxLength: 2 }
+                vehicle_type: { allOf: [{ $ref: "#/components/schemas/VehicleType" }], nullable: true, description: "Obligatorio si la placa no está registrada" }
+                customer_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+                zone_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+                space_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Espacio reservable; gana sobre zone_id" }
+                starts_at: { type: string, example: "2026-11-04T10:00", description: "Hora local del parqueadero" }
+                ends_at: { type: string, example: "2026-11-04T12:00" }
+                confirm: { type: boolean, default: true }
+                notes: { type: string, maxLength: 500, nullable: true }
+      responses:
+        "201": { description: "`data.reservation` y `data.replayed`" }
+        "200": { description: "Reintento con la misma clave: la reserva original" }
+        "409": { description: "FULLY_BOOKED, SPACE_ALREADY_RESERVED, VEHICLE_ALREADY_RESERVED, RESERVATION_CONFLICT o IDEMPOTENCY_KEY_REUSED" }
+        "422": { description: "INVALID_WINDOW, OUTSIDE_OPERATING_HOURS, RESERVATIONS_DISABLED, SPACE_NOT_RESERVABLE, SPACE_INCOMPATIBLE, NO_RESERVABLE_SPACES, VEHICLE_BLOCKED o datos inválidos" }
+  /api/v1/reservations/availability:
+    get:
+      tags: [Reservas]
+      summary: Capacidad libre de una ventana (reservations.view)
+      parameters:
+        - { name: lot_id, in: query, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: vehicle_type, in: query, required: true, schema: { $ref: "#/components/schemas/VehicleType" } }
+        - { name: starts_at, in: query, required: true, schema: { type: string, example: "2026-11-04T10:00" } }
+        - { name: ends_at, in: query, required: true, schema: { type: string, example: "2026-11-04T12:00" } }
+      responses:
+        "200": { description: "`pool`, `available`, `opens_throughout`, `policy`, `zones` (pool y libres) y `spaces` (libre para toda la ventana)" }
+  /api/v1/reservations/policy:
+    get:
+      tags: [Reservas]
+      summary: Reglas de reserva de un parqueadero (reservations.view)
+      parameters:
+        - { name: lot_id, in: query, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+      responses:
+        "200": { description: "`data.policy`" }
+    put:
+      tags: [Reservas]
+      summary: Cambiar las reglas de reserva (parking.update)
+      description: Aplica a las reservas nuevas; las existentes conservan sus horas derivadas.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lot_id, enabled, buffer_minutes, hold_minutes, arrival_tolerance_minutes, min_duration_minutes, max_duration_minutes, max_advance_days, within_operating_hours]
+              properties:
+                lot_id: { $ref: "#/components/schemas/Ulid" }
+                enabled: { type: boolean }
+                buffer_minutes: { type: integer, minimum: 0, maximum: 240 }
+                hold_minutes: { type: integer, minimum: 1, maximum: 1440 }
+                arrival_tolerance_minutes: { type: integer, minimum: 0, maximum: 720 }
+                min_duration_minutes: { type: integer, minimum: 15, maximum: 1440 }
+                max_duration_minutes: { type: integer, minimum: 15, maximum: 44640 }
+                max_advance_days: { type: integer, minimum: 1, maximum: 365 }
+                within_operating_hours: { type: boolean }
+      responses:
+        "200": { description: "`data.policy`" }
+        "422": { description: "INVALID_POLICY o datos inválidos" }
+  /api/v1/reservations/{reservation}:
+    parameters: [{ name: reservation, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    get:
+      tags: [Reservas]
+      summary: Detalle de una reserva (reservations.view)
+      responses:
+        "200": { description: "`data.reservation`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/reservations/{reservation}/confirm:
+    parameters: [{ name: reservation, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Reservas]
+      summary: Confirmar una reserva pendiente (reservations.manage)
+      responses:
+        "200": { description: "`data.reservation` confirmada" }
+        "422": { description: "RESERVATION_NOT_CHANGEABLE (por ejemplo, la retención venció)" }
+  /api/v1/reservations/{reservation}/cancel:
+    parameters: [{ name: reservation, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Reservas]
+      summary: Cancelar con motivo; libera el cupo y el espacio retenido (reservations.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 3, maxLength: 255 } } }
+      responses:
+        "200": { description: "`data.reservation` cancelada" }
+        "422": { description: "RESERVATION_NOT_CHANGEABLE (en curso o terminada) o motivo faltante" }
   /api/v1/live:
     get:
       tags: [Tiempo real]
@@ -1335,7 +1456,7 @@ components:
       type: object
       properties:
         id: { $ref: "#/components/schemas/Ulid" }
-        type: { type: string, enum: [registered, updated, plate_changed, status_changed, customer_linked, relationship_changed, customer_unlinked, entered, exited, session_cancelled] }
+        type: { type: string, enum: [registered, updated, plate_changed, status_changed, customer_linked, relationship_changed, customer_unlinked, entered, exited, session_cancelled, reserved] }
         data: { type: object, additionalProperties: true }
         actor: { type: object, nullable: true, properties: { id: { type: string }, name: { type: string } } }
         occurred_at: { type: string, format: date-time }
@@ -1414,6 +1535,7 @@ components:
         total: { type: integer, nullable: true }
         lines: { type: array, items: { $ref: "#/components/schemas/PriceLine" } }
         reason: { type: string, nullable: true }
+    ReservationStatus: { type: string, enum: [pending, confirmed, active, completed, cancelled, expired, no_show] }
     SessionCharge:
       type: object
       description: Cobro guardado en la salida; null mientras la sesión está abierta o si se anuló.

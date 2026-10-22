@@ -3455,11 +3455,13 @@ Composite tenant foreign keys and row level security on every new table
 Operations dashboard, space map and device screens
 ```
 
-Occupied and reserved states are reserved for parking sessions (0.5) and reservations (0.7). Device connectivity (online, offline, degraded) arrives with Edge heartbeats (0.13). See ADR-013.
+Occupied and reserved states belong to parking sessions (0.5) and reservations (0.7). Device connectivity (online, offline, degraded) arrives with Edge heartbeats (0.13). See ADR-013.
 
 Review during 0.5: deleting a space did not translate foreign key errors, so a space referenced by sessions would have answered 500; it now answers `SPACE_HAS_HISTORY`. A gate referenced by sessions answers `GATE_IN_USE` (formerly `GATE_HAS_DEVICES`). The demo seeder marked spaces as occupied without sessions; occupation now comes from real sessions, and the 0.5 migration frees the spaces left occupied.
 
 Review during 0.6: a lot could change its currency at any time, which would silently change the meaning of every amount priced in it. A lot with tariffs now refuses the change (`CURRENCY_IN_USE`), enforced by a composite foreign key. A zone used by a tariff answers `ZONE_IN_USE` instead of the misleading "has spaces" message.
+
+Review during 0.7: reservable spaces are now the reservation pool. Walk-ins are assigned to them last and arrivals with a reservation first; a space held for a reservation (`reserved`) can only be taken by that arrival. `SpaceCompatibility` moved from ParkingSessions to Parking so Reservations can use it without a circular dependency. The weekly schedule now answers whether an interval is fully open, including overnight shifts.
 
 ---
 
@@ -3554,6 +3556,8 @@ Live updates by polling change markers (GET /api/v1/live); the dashboard refresh
 
 Charging at exit arrives with pricing (0.6) and payments (0.9). Live updates use polling instead of Reverb, which would have forced a downgrade of `guzzlehttp/psr7`; the transport can change without touching the use cases. See ADR-015.
 
+Review during 0.7: an entry checks in the vehicle's reservation, an exit completes it and a cancelled entry restores it. The `Idempotency-Key` handling moved to Shared, since bookings use it too.
+
 Review during 0.6: the exit now prices the stay and stores the charge. SQLite (used by CI) rebuilds a table to add columns with foreign keys and recreates partial indexes without their `WHERE`; the 0.6 migration restores the open-session indexes explicitly, otherwise a space could hold only one session in its whole history on SQLite. PostgreSQL was not affected.
 
 ---
@@ -3632,6 +3636,28 @@ Conflict prevention
 Deliverable:
 
 Production-quality reservation system.
+
+Status:
+
+Implemented in the codebase:
+
+```text
+Reservations of a space, a zone or any reservable space of the lot
+Availability: peak of overlapping reservations against the pool of reservable spaces, per lot and zone
+Lifecycle: pending (hold) → confirmed → active → completed; expired, no-show and cancelled with a reason
+Per-lot policy: buffer, hold, arrival tolerance, min/max duration, advance days, within operating hours
+Operating hours checked over the whole window, overnight shifts included
+Bookings serialised per lot (advisory lock) and PostgreSQL exclusion constraints per space and per vehicle
+Idempotency-Key on booking; retries return the original reservation
+Scheduled sweep every minute: expires holds, marks no-shows, holds the reserved space from its window
+Arrival by plate checks in the reservation and takes its space; exit completes it; cancelled entry restores it
+Estimated price with the tariffs in force at the start, stored with its explanation
+Reservations in the vehicle timeline and the session; every transition audited
+reservations.view / reservations.manage, backfilled to existing system roles; policy needs parking.update
+Reservations screen (agenda, booking with live availability, cancel, rules) and today's arrivals in operations
+```
+
+Changing a reservation, prepayment and no-show charges, QR and notifications arrive with later versions (0.9, 0.14, 0.17). See ADR-017.
 
 ---
 

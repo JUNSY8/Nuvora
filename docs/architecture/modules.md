@@ -1,13 +1,13 @@
 # Módulos
 
-| Módulo | Responsabilidad | Estado en 0.6 |
+| Módulo | Responsabilidad | Estado en 0.7 |
 | --- | --- | --- |
 | Identity | Usuarios y autenticación | Sesión, registro, verificación de correo y restablecimiento de contraseña |
 | Tenancy | Empresas, membresías, contexto y RBAC | Activo |
 | Parking | Sedes, horario, configuración, zonas, espacios y puertas | Activo. Expone `ParkingInfrastructureDirectory` y `ParkingSpaceAllocator` a otros módulos. Un parqueadero con tarifas no cambia de moneda |
 | Vehicles | Vehículos, placas, vínculos con clientes e historial | Activo. Normaliza placas con reglas por país (`PlateRules`). Expone `VehicleDirectory` a las sesiones |
 | Customers | Personas, empresas y corporativos | Activo. Expone `CustomerDirectory` a otros módulos |
-| Reservations | Reservas y capacidad | Pendiente |
+| Reservations | Reservas, disponibilidad y ciclo de vida | Activo. Reservas de espacio, zona o parqueadero. Expone `ReservationDirectory` a las sesiones |
 | ParkingSessions | Entrada, salida, asignación de espacio y ciclo de la sesión | Activo. Operación manual; la salida calcula y guarda el cobro con Tariffs. El recaudo llega con Payments |
 | Tariffs | Tarifas, descuentos, promociones y simulación | Activo. Tarifas versionadas por parqueadero. Expone `PricingEngine` a las sesiones |
 | Memberships | Membresías | Pendiente |
@@ -32,3 +32,5 @@ Vehicles consulta Customers solo a través de `CustomerDirectory`. Customers no 
 ParkingSessions ocupa y libera espacios con `ParkingSpaceAllocator`, identifica o registra el vehículo con `VehicleDirectory` y resume clientes con `CustomerDirectory`, siempre dentro de su propia transacción. Ningún módulo depende de ParkingSessions. La decisión está en ADR-015.
 
 Tariffs lee moneda, zona horaria, gracia y zonas por `ParkingInfrastructureDirectory`. ParkingSessions le pide el precio de una estancia a `PricingEngine` dentro de la transacción de la salida y guarda el resultado en la sesión. Tariffs no depende de ParkingSessions. La decisión está en ADR-016.
+
+Reservations usa Parking (bolsa de espacios reservables, horario, retención de espacios), Vehicles, Customers y el `PricingEngine` de Tariffs. ParkingSessions llama a `ReservationDirectory` en la entrada, la salida y la anulación. `SpaceCompatibility` vive en Parking para que sesiones y reservas la compartan sin depender una de la otra. La decisión está en ADR-017.
