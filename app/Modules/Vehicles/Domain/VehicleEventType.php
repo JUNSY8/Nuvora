@@ -20,4 +20,5 @@ enum VehicleEventType: string
     case Entered = 'entered';
     case Exited = 'exited';
     case SessionCancelled = 'session_cancelled';
+    case Reserved = 'reserved';
 }

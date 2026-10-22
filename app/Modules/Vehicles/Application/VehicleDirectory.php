@@ -17,10 +17,11 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Public contract of the Vehicles module for parking sessions (and later
- * access control and LPR). Every answer is scoped to a tenant. Session
- * permissions authorize the caller; this contract does not check vehicle
- * permissions, so an operator can admit a visitor without vehicles.create.
+ * Public contract of the Vehicles module for parking sessions and
+ * reservations (and later access control and LPR). Every answer is scoped
+ * to a tenant. The caller's own permission authorizes it; this contract
+ * does not check vehicle permissions, so an operator can admit or book a
+ * visitor without vehicles.create.
  */
 final class VehicleDirectory
 {
@@ -33,7 +34,7 @@ final class VehicleDirectory
      *
      * @return array{id: string, plate: string, country: string, type: VehicleType, is_electric: bool, status: VehicleStatus, status_reason: string|null, registered: bool}
      */
-    public function identifyOrRegister(string $tenantId, string $actorUserId, string $plateInput, string $country, ?VehicleType $type): array
+    public function identifyOrRegister(string $tenantId, string $actorUserId, string $plateInput, string $country, ?VehicleType $type, string $source = 'entry'): array
     {
         $plate = Plate::fromInput($plateInput);
         $country = CountryCode::normalize($country);
@@ -72,7 +73,7 @@ final class VehicleDirectory
             'plate' => $vehicle->plate,
             'country' => $vehicle->country,
             'type' => $vehicle->type->value,
-            'source' => 'entry',
+            'source' => $source,
         ]);
 
         return $this->identity($vehicle, true);
