@@ -3,6 +3,7 @@ import { onClickOutside } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
+import NuvoraLogo from '@/components/ui/NuvoraLogo.vue'
 import { navigation, upcoming } from '@/modules/shell/navigation'
 import { initials } from '@/services/format'
 import { useAuthStore } from '@/stores/auth'
@@ -132,9 +133,7 @@ function toggleFullscreen(): void {
       :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
     >
       <RouterLink :to="{ name: 'dashboard' }" class="flex h-[70px] shrink-0 items-center gap-2.5 px-6" aria-label="Nuvora, ir al panel">
-        <span class="flex size-9 items-center justify-center rounded bg-gradient-to-br from-vz-primary to-vz-secondary text-xl text-white" aria-hidden="true">
-          <i class="ri-parking-box-fill" />
-        </span>
+        <NuvoraLogo class="size-9 shrink-0" />
         <span class="leading-tight">
           <span class="block text-lg font-semibold tracking-wide text-white">Nuvora</span>
           <span class="block text-[10px] tracking-[0.18em] text-vz-sidebar-title uppercase">Parking Cloud</span>

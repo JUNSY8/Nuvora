@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import NuvoraLogo from '@/components/ui/NuvoraLogo.vue'
+
 defineProps<{ title: string; subtitle: string }>()
 
 const year = new Date().getFullYear()
@@ -17,7 +19,7 @@ const highlights = [
         <div class="pointer-events-none absolute -right-24 -bottom-24 size-80 rounded-full border-[40px] border-white/5" />
         <div class="pointer-events-none absolute -top-16 -left-16 size-56 rounded-full bg-white/5" />
         <div class="relative flex items-center gap-2.5">
-          <span class="flex size-10 items-center justify-center rounded bg-white/15 text-2xl"><i class="ri-parking-box-fill" /></span>
+          <span class="flex size-10 items-center justify-center rounded bg-white/15"><NuvoraLogo variant="mark" class="size-7 text-white" /></span>
           <span class="text-xl font-semibold tracking-wide">Nuvora</span>
         </div>
         <div class="relative mt-auto">
@@ -34,7 +36,7 @@ const highlights = [
 
       <main class="flex flex-col p-6 sm:p-10">
         <div class="mb-8 flex items-center gap-2.5 lg:hidden">
-          <span class="flex size-9 items-center justify-center rounded bg-gradient-to-br from-vz-primary to-vz-secondary text-xl text-white" aria-hidden="true"><i class="ri-parking-box-fill" /></span>
+          <NuvoraLogo class="size-9 shrink-0" />
           <span class="text-lg font-semibold tracking-wide text-white">Nuvora</span>
         </div>
         <header>
