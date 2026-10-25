@@ -21,13 +21,14 @@ return [
     | Payments
     |--------------------------------------------------------------------------
     |
-    | Minutes an exit quote keeps its price while the cashier collects. See
-    | ADR-019.
+    | Minutes an exit quote keeps its price while the cashier collects
+    | (ADR-019) and minutes a payment link stays valid (ADR-020).
     |
     */
 
     'payments' => [
         'quote_hold_minutes' => (int) env('NUVORA_QUOTE_HOLD_MINUTES', 5),
+        'link_minutes' => (int) env('NUVORA_PAYMENT_LINK_MINUTES', 60),
     ],
 
     'features' => [

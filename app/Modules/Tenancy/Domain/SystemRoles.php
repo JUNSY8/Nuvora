@@ -53,6 +53,7 @@ final class SystemRoles
                     Permission::PAYMENTS_VIEW,
                     Permission::PAYMENTS_CREATE,
                     Permission::PAYMENTS_RECONCILE,
+                    Permission::PAYMENTS_CONFIGURE,
                     Permission::REPORTS_VIEW,
                 ],
             ],

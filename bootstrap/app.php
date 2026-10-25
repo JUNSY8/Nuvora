@@ -67,6 +67,11 @@ return Application::configure(basePath: dirname(__DIR__))
                 ->prefix('api/v1')
                 ->group(base_path('app/Modules/Payments/Presentation/Routes/api.php'));
 
+            // Provider webhooks: no session and no CSRF; each one is verified by its signature.
+            Route::middleware('api')
+                ->prefix('api/v1')
+                ->group(base_path('app/Modules/Payments/Presentation/Routes/webhooks.php'));
+
             Route::middleware('web')
                 ->prefix('api/v1')
                 ->group(base_path('app/Modules/Shared/Presentation/Routes/live.php'));

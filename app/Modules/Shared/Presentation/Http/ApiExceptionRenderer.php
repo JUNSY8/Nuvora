@@ -12,6 +12,7 @@ use App\Modules\Identity\Domain\PasswordResetThrottled;
 use App\Modules\Memberships\Domain\MembershipRuleViolation as ParkingMembershipRuleViolation;
 use App\Modules\Parking\Domain\ParkingRuleViolation;
 use App\Modules\ParkingSessions\Domain\SessionRuleViolation;
+use App\Modules\Payments\Domain\Gateway\ProviderUnavailable;
 use App\Modules\Payments\Domain\PaymentRuleViolation;
 use App\Modules\Reservations\Domain\ReservationRuleViolation;
 use App\Modules\Shared\Presentation\Http\Responses\ApiResponse;
@@ -176,6 +177,19 @@ final class ApiExceptionRenderer
                 code: $exception->errorCode,
                 message: $exception->getMessage(),
                 status: $exception->status,
+                request: $request,
+            );
+        });
+
+        $exceptions->render(function (ProviderUnavailable $exception, Request $request) {
+            if (! self::wantsJson($request)) {
+                return null;
+            }
+
+            return ApiResponse::error(
+                code: 'PROVIDER_UNAVAILABLE',
+                message: 'La pasarela de pagos no respondió. Inténtalo de nuevo en unos minutos.',
+                status: 503,
                 request: $request,
             );
         });
