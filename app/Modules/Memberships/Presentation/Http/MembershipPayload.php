@@ -10,6 +10,8 @@ use App\Modules\Memberships\Infrastructure\Persistence\Membership;
 use App\Modules\Memberships\Infrastructure\Persistence\MembershipPeriod;
 use App\Modules\Memberships\Infrastructure\Persistence\MembershipPlan;
 use App\Modules\Memberships\Infrastructure\Persistence\MembershipVehicle;
+use App\Modules\Payments\Application\PaymentDirectory;
+use App\Modules\Payments\Domain\PayableType;
 use App\Modules\Vehicles\Application\VehicleDirectory;
 
 final class MembershipPayload
@@ -94,7 +96,16 @@ final class MembershipPayload
             ];
 
             if ($withHistory) {
+                $balances = app(PaymentDirectory::class)->balances(
+                    $tenantId,
+                    PayableType::MembershipPeriod,
+                    $membership->periods->filter(fn (MembershipPeriod $period): bool => $period->status !== 'void')
+                        ->mapWithKeys(fn (MembershipPeriod $period): array => [(string) $period->id => $period->amount])
+                        ->all(),
+                );
+
                 $item['periods'] = $membership->periods->map(fn (MembershipPeriod $period): array => [
+                    'id' => $period->id,
                     'sequence' => $period->sequence,
                     'starts_on' => $period->starts_on->format('Y-m-d'),
                     'ends_on' => $period->ends_on->format('Y-m-d'),
@@ -102,7 +113,10 @@ final class MembershipPayload
                     'currency' => $period->currency,
                     'status' => $period->status,
                     'origin' => $period->origin,
+                    'paid' => ($balances[(string) $period->id] ?? null)?->paid ?? 0,
+                    'balance' => ($balances[(string) $period->id] ?? null)?->outstanding() ?? 0,
                 ])->values()->all();
+                $item['outstanding'] = array_sum(array_column($item['periods'], 'balance'));
             }
 
             $items[] = $item;

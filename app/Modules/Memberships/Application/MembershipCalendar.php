@@ -13,8 +13,8 @@ use DateTimeImmutable;
 
 /**
  * Days and periods of memberships. "Today" is the tenant's local day, never
- * the server's. Each period is recorded with what it costs so payments
- * (0.9) can collect it.
+ * the server's. Each period is recorded with what it costs so Payments can
+ * collect it.
  */
 final class MembershipCalendar
 {
