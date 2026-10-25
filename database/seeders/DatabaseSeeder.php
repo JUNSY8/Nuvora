@@ -17,6 +17,8 @@ use App\Modules\Memberships\Application\SellMembership;
 use App\Modules\Memberships\Application\SubscriptionData;
 use App\Modules\Memberships\Domain\BillingPeriod;
 use App\Modules\Memberships\Domain\PlanCategory;
+use App\Modules\Memberships\Infrastructure\Persistence\Membership;
+use App\Modules\Memberships\Infrastructure\Persistence\MembershipPeriod;
 use App\Modules\Memberships\Infrastructure\Persistence\MembershipPlan;
 use App\Modules\Parking\Application\CreateParkingLot;
 use App\Modules\Parking\Application\CreateParkingSpaceRange;
@@ -37,8 +39,14 @@ use App\Modules\Parking\Infrastructure\Persistence\ParkingZone;
 use App\Modules\ParkingSessions\Application\EntryData;
 use App\Modules\ParkingSessions\Application\RegisterEntry;
 use App\Modules\ParkingSessions\Application\RegisterExit;
+use App\Modules\ParkingSessions\Domain\ChargeStatus;
 use App\Modules\ParkingSessions\Domain\SessionRuleViolation;
 use App\Modules\ParkingSessions\Infrastructure\Persistence\ParkingSession;
+use App\Modules\Payments\Application\CollectPayment;
+use App\Modules\Payments\Application\PaymentData;
+use App\Modules\Payments\Domain\PayableType;
+use App\Modules\Payments\Domain\PaymentMethod;
+use App\Modules\Payments\Infrastructure\Persistence\Payment;
 use App\Modules\Reservations\Application\CreateReservation;
 use App\Modules\Reservations\Application\ReservationData;
 use App\Modules\Reservations\Infrastructure\Persistence\Reservation;
@@ -94,6 +102,47 @@ class DatabaseSeeder extends Seeder
         $this->seedSessions((string) $user->id, (string) $membership->tenant_id);
         $this->seedReservations((string) $user->id, (string) $membership->tenant_id);
         $this->seedMemberships((string) $user->id, (string) $membership->tenant_id);
+        $this->seedPayments((string) $user->id, (string) $membership->tenant_id);
+    }
+
+    /**
+     * Payments of the demo: the visit that left pays cash with change, and
+     * the memberships in good standing paid their first period by card or
+     * transfer. The second visit and the suspended membership stay owing,
+     * and nothing is closed yet, so the cash closing has movements to show.
+     */
+    private function seedPayments(string $actorId, string $tenantId): void
+    {
+        if (Payment::query()->where('tenant_id', $tenantId)->exists()) {
+            return;
+        }
+
+        $collect = app(CollectPayment::class);
+        $visit = ParkingSession::query()->where('tenant_id', $tenantId)->where('plate', 'RTA118')->where('charge_status', ChargeStatus::Priced->value)->first();
+
+        if ($visit !== null && (int) $visit->total_amount > 0) {
+            // Paid with the next round $10.000 bills.
+            $tendered = (int) (ceil($visit->total_amount / 1000000) * 1000000);
+            $collect->handle($actorId, $tenantId, new PaymentData(PayableType::ParkingSession, (string) $visit->id, PaymentMethod::Cash, tendered: $tendered), null);
+        }
+
+        $paid = [
+            'KXY482' => [PaymentMethod::Transfer, 'NEQUI-48211'],
+            'TAN301' => [PaymentMethod::Card, 'APR-009812'],
+            'SAB910' => [PaymentMethod::Transfer, 'BANCOLOMBIA-77310'],
+        ];
+
+        foreach ($paid as $plate => [$method, $reference]) {
+            $membership = Membership::query()
+                ->where('tenant_id', $tenantId)
+                ->whereHas('vehicles', fn ($query) => $query->where('plate', $plate)->whereNull('removed_at'))
+                ->first();
+            $period = $membership === null ? null : MembershipPeriod::query()->where('membership_id', $membership->id)->orderBy('sequence')->first();
+
+            if ($period !== null) {
+                $collect->handle($actorId, $tenantId, new PaymentData(PayableType::MembershipPeriod, (string) $period->id, $method, reference: $reference), null);
+            }
+        }
     }
 
     /**
@@ -299,6 +348,13 @@ class DatabaseSeeder extends Seeder
 
         if ($visit !== null) {
             app(RegisterExit::class)->handle($actorId, $tenantId, $visit, $exitGate, null, null);
+        }
+
+        // Left without paying: it shows as owing in the history.
+        $owing = $enter('PND707', VehicleType::Car, 'A-02', 75);
+
+        if ($owing !== null) {
+            app(RegisterExit::class)->handle($actorId, $tenantId, $owing, $exitGate, null, null);
         }
     }
 
