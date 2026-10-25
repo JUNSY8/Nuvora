@@ -3415,6 +3415,8 @@ Review during 0.6: pricing adds `tariffs.view`, `tariffs.manage` and `sessions.d
 
 Review during 0.8: memberships add `memberships.view` (every system role) and `memberships.manage` (owner, administrator, supervisor, cashier), backfilled to existing system roles. The membership tables have row level security like the rest, so the 0.6 note about the database role still applies and is still open.
 
+Review during 0.9: payments add `payments.reconcile` (owner, administrator, supervisor). The payment permissions were already in the catalog; a migration backfills all of them to existing system roles. The payment tables have row level security too, so the 0.6 note about the database role is still open, and with money involved it must be closed before production.
+
 ---
 
 
@@ -3560,6 +3562,8 @@ Live updates by polling change markers (GET /api/v1/live); the dashboard refresh
 
 Charging at exit arrives with pricing (0.6) and payments (0.9). Live updates use polling instead of Reverb, which would have forced a downgrade of `guzzlehttp/psr7`; the transport can change without touching the use cases. See ADR-015.
 
+Review during 0.9: the exit can collect the payment in the same transaction (cash with change, card, transfer); if the cash does not cover the charge the vehicle stays inside. An exit without payment leaves the stay owing: the history filters it (`unpaid=1`), the session shows its balance and the summary adds `collected_today` and `unpaid_today`. The exit audit had `charge_status` twice; it now records the `payment_id` instead.
+
 Review during 0.8: an entry asks Memberships whether a membership covers the arrival and answers `notices` for the operator; a covered stay is attributed to the membership holder. The exit event in the vehicle timeline records the charge status, so a covered exit no longer reads as "$0" without explanation.
 
 Review during 0.7: an entry checks in the vehicle's reservation, an exit completes it and a cancelled entry restores it. The `Idempotency-Key` handling moved to Shared, since bookings use it too.
@@ -3619,6 +3623,8 @@ Tariffs screen (tariffs, discounts and promotions, simulator), exit dialog with 
 Holidays and calendars, membership and reservation pricing, taxes and collecting the charge arrive with their versions (0.7, 0.8, 0.9, 0.11). See ADR-016.
 
 Review during 0.8: a stay covered by a membership is still priced with the tariff, so the value the membership paid is recorded, but it closes as `covered` with total 0 and takes no manual discount or promotion. Price lines gain the `membership` type.
+
+Review during 0.9: a quote now holds its price for a few minutes (`quote_token`, `NUVORA_QUOTE_HOLD_MINUTES`). An exit that sends a valid token is priced at the quoted instant, so the driver pays what they were told while the cashier collects. The token is encrypted and bound to the tenant, the session and the discount.
 
 ---
 
@@ -3715,6 +3721,8 @@ Memberships screen (memberships, plans, sale, detail with vehicles, periods and 
 
 Collecting periods, proration and refunds arrive with payments (0.9); barrier access by membership with LPR and hardware (0.12, 0.13); expiration notices with notifications (0.17). See ADR-018.
 
+Review during 0.9: periods are collected from the membership detail and move from `due` to `paid` (and back to `due` if a refund leaves a balance); the detail shows what is still owed. Coverage still does not depend on payment: an unpaid membership with automatic renewal keeps covering until someone suspends it. Whether coverage should end when a period stays unpaid past the grace days is a business decision left open.
+
 ---
 
 
@@ -3740,6 +3748,31 @@ Online providers are not yet required.
 Deliverable:
 
 Complete payment domain ready for provider integrations.
+
+Status:
+
+Implemented in the codebase:
+
+```text
+Payments module with a PayableSource contract: parking session charges and membership periods
+Cash with tendered amount and change; card terminal, transfer and other as manual payments with reference
+PaymentGateway port with an offline gateway; payments record provider and provider reference for 0.10
+Payment states (pending, completed, failed, partially refunded, refunded) checked by PostgreSQL
+Partial payments; never more than the balance; the payable is locked while collecting
+Idempotency-Key on payments and refunds, unique per tenant; concurrent retries answer as replays
+Payment at the exit in the same transaction; operators without payments.create leave the stay owing
+Quote hold: an exit priced at the quoted instant for a few minutes, with an encrypted token
+Refunds (all or part, same method, reason required) that reopen the payable's balance
+Consecutive numbers per tenant for receipts (RC), refunds (DV) and cash closings (CC)
+Printable receipt from the payment's own snapshot (not an electronic invoice)
+Payment history with filters and totals per method; balances in sessions and membership periods
+Cash closing per cashier and currency: expected vs counted cash, each movement in one closing only
+payments.view / create / refund / reconcile, backfilled to existing system roles; every change audited
+Payments screen (history, detail with refunds, cash closing), payment in the exit dialog,
+collection from the session history and the membership detail
+```
+
+Online providers, webhooks and statement reconciliation arrive with 0.10; taxes and electronic invoicing with 0.11. See ADR-019.
 
 ---
 

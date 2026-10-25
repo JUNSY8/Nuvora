@@ -1,11 +1,11 @@
 openapi: 3.0.3
 info:
   title: Nuvora API
-  version: 0.8.0
+  version: 0.9.0
   description: |
     Contrato de salud, identidad, empresas (tenancy), auditoría, infraestructura de
     parqueaderos, registro de dispositivos, clientes, vehículos, sesiones de parqueo,
-    tarifas, descuentos, reservas y mensualidades.
+    tarifas, descuentos, reservas, mensualidades y pagos.
 
     El dinero viaja como entero en la unidad menor de la moneda (ISO 4217): 5.000 COP es
     500000. Los pesos colombianos se cobran enteros, así que sus montos son múltiplos de 100.
@@ -33,6 +33,7 @@ tags:
   - name: Tarifas
   - name: Reservas
   - name: Mensualidades
+  - name: Pagos
   - name: Tiempo real
 paths:
   /health/live:
@@ -859,7 +860,7 @@ paths:
         - { name: lot_id, in: query, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
       responses:
         "200":
-          description: "`data.occupancy`, `open`, `open_without_space`, `entries_today`, `exits_today`, `charged_today` (unidad menor de `currency`), `unpriced_today`, `covered_today` (salidas cubiertas por mensualidad), `currency`, `cancelled_today`, `average_stay_minutes_today`, `oldest_open_entry_at`, `day_starts_at` y `version` (marcador de cambios)"
+          description: "`data.occupancy`, `open`, `open_without_space`, `entries_today`, `exits_today`, `charged_today` (calculado en las salidas, unidad menor de `currency`), `collected_today` (recaudado hoy en el parqueadero menos reembolsos), `unpaid_today` (salidas de hoy con saldo), `unpriced_today`, `covered_today` (salidas cubiertas por mensualidad), `currency`, `cancelled_today`, `average_stay_minutes_today`, `oldest_open_entry_at`, `day_starts_at` y `version` (marcador de cambios)"
         "422": { description: "Parqueadero inexistente o de otra empresa" }
   /api/v1/parking-sessions/entries:
     post:
@@ -911,6 +912,10 @@ paths:
         `data.session.charge`. Sin tarifa aplicable la salida se registra con `charge.status`
         `unpriced`; una estancia que entró cubierta por una mensualidad cierra `covered` con total 0 y
         sin descuentos. Un reintento con la misma clave devuelve el cobro original sin recalcular.
+
+        Con `quote_token` vigente se cobra con el instante de la cotización. Con `payment` (requiere
+        payments.create) el pago se registra en la misma transacción: si el efectivo no alcanza, la
+        salida no se registra. Sin `payment` la estancia queda por cobrar. Ver ADR-019.
       parameters:
         - { $ref: "#/components/parameters/IdempotencyKey" }
       requestBody:
@@ -922,12 +927,21 @@ paths:
                 gate_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Puerta activa de salida o bidireccional" }
                 notes: { type: string, maxLength: 500, nullable: true }
                 discount_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Descuento manual del catálogo (sessions.discount)" }
+                quote_token: { type: string, nullable: true, description: "Token de la cotización; fija su precio unos minutos" }
+                payment:
+                  type: object
+                  nullable: true
+                  required: [method]
+                  properties:
+                    method: { $ref: "#/components/schemas/PaymentMethod" }
+                    tendered_amount: { type: integer, nullable: true, description: "Efectivo recibido; por defecto el valor exacto" }
+                    reference: { type: string, maxLength: 100, nullable: true }
       responses:
-        "200": { description: "`data.session` cerrada con `duration_minutes` (minutos iniciados), `charge` (`SessionCharge`) y `data.replayed`; una reserva en curso queda cumplida" }
-        "403": { description: "Descuento sin el permiso sessions.discount (FORBIDDEN)" }
+        "200": { description: "`data.session` cerrada con `duration_minutes` (minutos iniciados), `charge` (`SessionCharge`), `payment` (`PaymentBalance`) y `data.replayed`; `data.payment` trae el pago cobrado (número, valor, vueltas) o null; una reserva en curso queda cumplida" }
+        "403": { description: "Descuento sin sessions.discount o pago sin payments.create (FORBIDDEN)" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { description: "Clave reutilizada para otra sesión (IDEMPOTENCY_KEY_REUSED)" }
-        "422": { description: "La sesión ya terminó (SESSION_NOT_OPEN), puerta inválida o descuento no aplicable (DISCOUNT_NOT_APPLICABLE)" }
+        "422": { description: "La sesión ya terminó (SESSION_NOT_OPEN), puerta inválida, descuento no aplicable (DISCOUNT_NOT_APPLICABLE), cotización de otra salida (INVALID_QUOTE) o efectivo insuficiente (INSUFFICIENT_TENDER)" }
   /api/v1/parking-sessions/{session}/quote:
     parameters: [{ $ref: "#/components/parameters/Session" }]
     get:
@@ -1424,6 +1438,136 @@ paths:
             schema: { type: object, required: [auto_renew], properties: { auto_renew: { type: boolean } } }
       responses:
         "200": { description: "`data.membership`" }
+  /api/v1/payments:
+    get:
+      tags: [Pagos]
+      summary: Historial de pagos con totales de los mismos filtros (payments.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: lot_id, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: method, in: query, schema: { $ref: "#/components/schemas/PaymentMethod" } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/PaymentStatus" } }
+        - { name: payable_type, in: query, schema: { $ref: "#/components/schemas/PayableType" } }
+        - { name: payable_id, in: query, description: "Requiere payable_type", schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: received_by, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: reconciled, in: query, schema: { type: boolean } }
+        - { name: from_date, in: query, description: "Día local de la empresa", schema: { type: string, format: date } }
+        - { name: to_date, in: query, schema: { type: string, format: date } }
+        - { name: search, in: query, description: "Número de recibo o placa", schema: { type: string, maxLength: 20 } }
+      responses:
+        "200": { description: "`data.items` (`Payment`), `data.meta` y `data.totals` (count, collected, refunded, net, currencies, by_method)" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Pagos]
+      summary: Cobrar una estancia cerrada o un periodo de mensualidad (payments.create)
+      description: |
+        Sin `amount` cobra todo el saldo; un valor menor deja el resto pendiente. El cobro queda
+        bloqueado mientras se registra el pago. El efectivo admite `tendered_amount` y devuelve vueltas.
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payable_type, payable_id, method]
+              properties:
+                payable_type: { $ref: "#/components/schemas/PayableType" }
+                payable_id: { $ref: "#/components/schemas/Ulid" }
+                method: { $ref: "#/components/schemas/PaymentMethod" }
+                amount: { type: integer, minimum: 1, nullable: true }
+                tendered_amount: { type: integer, minimum: 0, nullable: true }
+                reference: { type: string, maxLength: 100, nullable: true }
+                notes: { type: string, maxLength: 500, nullable: true }
+      responses:
+        "201": { description: "`data.payment` (`Payment` con detalle) y `data.replayed: false`" }
+        "200": { description: "Reintento con la misma Idempotency-Key: el pago original y `data.replayed: true`" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: "NOTHING_DUE (abierta, anulada, cubierta, sin tarifa o en gracia), ALREADY_PAID o IDEMPOTENCY_KEY_REUSED" }
+        "422": { description: "AMOUNT_EXCEEDS_BALANCE, INSUFFICIENT_TENDER, INVALID_AMOUNT o validación" }
+  /api/v1/payments/{payment}:
+    parameters: [{ name: payment, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    get:
+      tags: [Pagos]
+      summary: Detalle del pago con reembolsos y cierre (payments.view)
+      responses:
+        "200": { description: "`data.payment`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/payments/{payment}/receipt:
+    parameters: [{ name: payment, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    get:
+      tags: [Pagos]
+      summary: Datos del recibo imprimible (payments.view)
+      description: Se arma con la copia guardada en el pago. No es factura electrónica.
+      responses:
+        "200": { description: "`data.receipt`: número, fecha, zona horaria, empresa, parqueadero, detalle, medio, recibido, vueltas, cajero y reembolsos" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/payments/{payment}/refunds:
+    parameters: [{ name: payment, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Pagos]
+      summary: Reembolsar todo o parte de un pago por el mismo medio (payments.refund)
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                amount: { type: integer, minimum: 1, nullable: true, description: "Por defecto lo que queda del pago" }
+                reason: { type: string, minLength: 3, maxLength: 255 }
+      responses:
+        "201": { description: "`data.payment` con el reembolso; el cobro vuelve a tener saldo" }
+        "200": { description: "Reintento con la misma Idempotency-Key" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: "PAYMENT_NOT_REFUNDABLE o IDEMPOTENCY_KEY_REUSED" }
+        "422": { description: "REFUND_EXCEEDS_PAYMENT, INVALID_AMOUNT o motivo faltante" }
+  /api/v1/payment-reconciliations:
+    get:
+      tags: [Pagos]
+      summary: Cierres de caja, el más reciente primero (payments.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: cashier_id, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+      responses:
+        "200": { description: "`data.items` (`Reconciliation`) y `data.meta`" }
+    post:
+      tags: [Pagos]
+      summary: Cerrar la caja de un cajero en una moneda
+      description: |
+        Toma los pagos que recibió y los reembolsos que hizo desde su último cierre. La propia caja
+        requiere payments.create; la de otro cajero, payments.reconcile.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currency, counted_cash]
+              properties:
+                cashier_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Por defecto quien cierra" }
+                currency: { type: string, example: COP }
+                counted_cash: { type: integer, minimum: 0 }
+                notes: { type: string, maxLength: 500, nullable: true }
+      responses:
+        "201": { description: "`data.reconciliation`" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { description: "NOTHING_TO_RECONCILE, INVALID_AMOUNT o validación" }
+  /api/v1/payment-reconciliations/preview:
+    get:
+      tags: [Pagos]
+      summary: Lo que tomaría un cierre ahora, por moneda
+      parameters:
+        - { name: cashier_id, in: query, description: "Por defecto quien consulta", schema: { $ref: "#/components/schemas/Ulid" } }
+      responses:
+        "200": { description: "`data.cashier_id` y `data.currencies` (currency, payments_count, refunds_count, first_movement_at, by_method, expected_cash)" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /api/v1/live:
     get:
       tags: [Tiempo real]
@@ -1731,6 +1875,9 @@ components:
         total: { type: integer, nullable: true }
         lines: { type: array, items: { $ref: "#/components/schemas/PriceLine" } }
         reason: { type: string, nullable: true }
+        priced_at: { type: string, format: date-time }
+        quote_token: { type: string, description: "Enviarlo con la salida fija este precio hasta quote_expires_at" }
+        quote_expires_at: { type: string, format: date-time }
     PlanInput:
       type: object
       required: [code, name, category, billing_period, price_amount, currency, grace_days, max_vehicles, parking_lot_ids, zone_ids, vehicle_types, windows]
@@ -1791,14 +1938,76 @@ components:
           items:
             type: object
             properties:
+              id: { $ref: "#/components/schemas/Ulid" }
               sequence: { type: integer }
               starts_on: { type: string, format: date }
               ends_on: { type: string, format: date }
               amount: { type: integer }
               currency: { type: string }
-              status: { type: string, enum: [due, paid, void], description: "El recaudo llega con pagos (0.9)" }
+              status: { type: string, enum: [due, paid, void], description: "paid cuando Payments lo cobró completo" }
               origin: { type: string, enum: [subscription, renewal, automatic] }
+              paid: { type: integer, description: "Cobrado, menos reembolsos" }
+              balance: { type: integer, description: "Saldo por cobrar" }
+        outstanding: { type: integer, description: "Saldo de todos los periodos; solo en el detalle" }
     ReservationStatus: { type: string, enum: [pending, confirmed, active, completed, cancelled, expired, no_show] }
+    PaymentMethod: { type: string, enum: [cash, card, transfer, other], description: "card, transfer y other son pagos manuales con referencia" }
+    PaymentStatus: { type: string, enum: [pending, completed, failed, partially_refunded, refunded] }
+    PayableType: { type: string, enum: [parking_session, membership_period] }
+    PaymentBalance:
+      type: object
+      description: Lo que debe un cobro. not_required cuando no tiene valor (gracia, mensualidad, sin tarifa).
+      properties:
+        status: { type: string, enum: [not_required, pending, partial, paid] }
+        due: { type: integer }
+        paid: { type: integer }
+        balance: { type: integer }
+    Payment:
+      type: object
+      properties:
+        id: { $ref: "#/components/schemas/Ulid" }
+        number: { type: string, example: RC-000001 }
+        status: { $ref: "#/components/schemas/PaymentStatus" }
+        payable: { type: object, properties: { type: { $ref: "#/components/schemas/PayableType" }, id: { type: string } } }
+        parking_lot: { type: object, nullable: true }
+        customer_id: { type: string, nullable: true }
+        description: { type: string }
+        plate: { type: string, nullable: true }
+        method: { $ref: "#/components/schemas/PaymentMethod" }
+        provider: { type: string, example: offline }
+        amount: { type: integer }
+        refunded_amount: { type: integer }
+        net_amount: { type: integer }
+        currency: { type: string }
+        tendered_amount: { type: integer, nullable: true }
+        change_amount: { type: integer, nullable: true }
+        reference: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        received_at: { type: string, format: date-time }
+        received_by: { type: object, nullable: true }
+        reconciled: { type: boolean }
+        details: { type: object, description: "Solo en el detalle: copia de la estancia o el periodo para el recibo" }
+        refunds: { type: array, description: "Solo en el detalle", items: { type: object } }
+        reconciliation: { type: object, nullable: true, description: "Solo en el detalle" }
+    MethodTotals:
+      type: object
+      properties: { count: { type: integer }, collected: { type: integer }, refunded: { type: integer }, net: { type: integer } }
+    Reconciliation:
+      type: object
+      properties:
+        id: { $ref: "#/components/schemas/Ulid" }
+        number: { type: string, example: CC-000001 }
+        cashier: { type: object, nullable: true }
+        closed_by: { type: object, nullable: true }
+        currency: { type: string }
+        first_movement_at: { type: string, format: date-time, nullable: true }
+        closed_at: { type: string, format: date-time }
+        payments_count: { type: integer }
+        refunds_count: { type: integer }
+        by_method: { type: object, additionalProperties: { $ref: "#/components/schemas/MethodTotals" } }
+        expected_cash: { type: integer, description: "Efectivo recibido menos efectivo reembolsado" }
+        counted_cash: { type: integer }
+        difference: { type: integer, description: "contado − esperado" }
+        notes: { type: string, nullable: true }
     SessionCharge:
       type: object
       description: Cobro guardado en la salida; null mientras la sesión está abierta o si se anuló.
