@@ -34,7 +34,7 @@ final class ListPayments
         $this->authorizer->assert($actorUserId, $tenantId, Permission::PAYMENTS_VIEW);
 
         return $this->query($tenantId, $filters)
-            ->with('receivedBy:id,name')
+            ->with(['receivedBy:id,name', 'providerAccount:id,name'])
             ->orderByDesc('received_at')
             ->orderByDesc('id')
             ->paginate($perPage, ['*'], 'page', $page);
@@ -87,7 +87,7 @@ final class ListPayments
     {
         $this->authorizer->assert($actorUserId, $tenantId, Permission::PAYMENTS_VIEW);
 
-        return $this->lookup->find($tenantId, $paymentId)->load(['receivedBy:id,name', 'refunds.refundedBy:id,name', 'reconciliation:id,number']);
+        return $this->lookup->find($tenantId, $paymentId)->load(['receivedBy:id,name', 'refunds.refundedBy:id,name', 'reconciliation:id,number', 'providerAccount:id,name,provider', 'requestedBy:id,name']);
     }
 
     /**

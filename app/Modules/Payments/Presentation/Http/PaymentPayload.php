@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Modules\Payments\Presentation\Http;
 
 use App\Modules\Parking\Application\ParkingInfrastructureDirectory;
+use App\Modules\Payments\Application\OnlineCheckouts;
+use App\Modules\Payments\Domain\PaymentStatus;
 use App\Modules\Payments\Infrastructure\Persistence\Payment;
+use App\Modules\Payments\Infrastructure\Persistence\PaymentProviderAccount;
 use App\Modules\Payments\Infrastructure\Persistence\PaymentReconciliation;
 use App\Modules\Payments\Infrastructure\Persistence\PaymentRefund;
 
@@ -40,7 +43,7 @@ final class PaymentPayload
      */
     public static function one(string $tenantId, Payment $payment): array
     {
-        $payment->loadMissing(['receivedBy:id,name', 'refunds.refundedBy:id,name', 'reconciliation:id,number']);
+        $payment->loadMissing(['receivedBy:id,name', 'refunds.refundedBy:id,name', 'reconciliation:id,number', 'providerAccount:id,name,provider', 'requestedBy:id,name']);
 
         return [
             ...self::many($tenantId, [$payment])[0],
@@ -54,8 +57,14 @@ final class PaymentPayload
                 'reason' => $refund->reason,
                 'refunded_at' => $refund->refunded_at->toIso8601String(),
                 'refunded_by' => $refund->refundedBy === null ? null : ['id' => $refund->refundedBy->id, 'name' => $refund->refundedBy->name],
+                'status' => $refund->status->value,
+                'provider' => $refund->provider,
+                'failure_reason' => $refund->failure_reason,
             ])->values()->all(),
             'reconciliation' => $payment->reconciliation === null ? null : ['id' => $payment->reconciliation->id, 'number' => $payment->reconciliation->number],
+            'requested_by' => $payment->requestedBy === null ? null : ['id' => $payment->requestedBy->id, 'name' => $payment->requestedBy->name],
+            // Staff can copy a pending link again; the token is stored encrypted.
+            'checkout_url' => $payment->isOnline() && $payment->status === PaymentStatus::Pending && $payment->checkout_token !== null ? OnlineCheckouts::linkUrl($payment->checkout_token) : null,
         ];
     }
 
@@ -87,6 +96,14 @@ final class PaymentPayload
             'received_at' => $payment->received_at->toIso8601String(),
             'received_by' => $payment->receivedBy === null ? null : ['id' => $payment->receivedBy->id, 'name' => $payment->receivedBy->name],
             'reconciled' => $payment->reconciliation_id !== null,
+            'provider_account' => $payment->provider_account_id === null ? null : [
+                'id' => $payment->provider_account_id,
+                'name' => $payment->relationLoaded('providerAccount') ? $payment->providerAccount?->name : null,
+            ],
+            'provider_reference' => $payment->provider_reference,
+            'provider_method' => $payment->provider_method,
+            'failure_reason' => $payment->failure_reason,
+            'expires_at' => $payment->expires_at?->toIso8601String(),
         ];
     }
 
@@ -112,6 +129,24 @@ final class PaymentPayload
             'counted_cash' => $reconciliation->counted_cash,
             'difference' => $reconciliation->difference,
             'notes' => $reconciliation->notes,
+        ];
+    }
+
+    /**
+     * @param  array<string, string>  $maskedCredentials
+     * @return array<string, mixed>
+     */
+    public static function providerAccount(PaymentProviderAccount $account, array $maskedCredentials, string $notificationUrl): array
+    {
+        return [
+            'id' => $account->id,
+            'provider' => $account->provider,
+            'name' => $account->name,
+            'environment' => $account->environment,
+            'status' => $account->status,
+            'credentials' => $maskedCredentials,
+            'notification_url' => $notificationUrl,
+            'updated_at' => $account->updated_at?->toIso8601String(),
         ];
     }
 }

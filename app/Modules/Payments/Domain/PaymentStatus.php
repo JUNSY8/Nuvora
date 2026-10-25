@@ -38,6 +38,37 @@ enum PaymentStatus: string
     }
 
     /**
+     * The status a provider's answer moves this payment to, or null when it
+     * changes nothing. Answers can arrive late, twice or out of order: a
+     * pending answer never undoes a final one, and an approval that comes
+     * after the payment was given up (expired, declined) still counts,
+     * because the money was taken. A void of a received payment is a
+     * refund and is recorded as one, not here.
+     */
+    public function afterProvider(ProviderStatus $answer): ?self
+    {
+        return match (true) {
+            $this === self::Pending && $answer === ProviderStatus::Approved => self::Completed,
+            $this === self::Pending && in_array($answer, [ProviderStatus::Declined, ProviderStatus::Expired, ProviderStatus::Error, ProviderStatus::Voided], true) => self::Failed,
+            $this === self::Failed && $answer === ProviderStatus::Approved => self::Completed,
+            default => null,
+        };
+    }
+
+    /**
+     * The status once the refunded total is what it is now (after a failed
+     * refund gives its amount back).
+     */
+    public static function forRefunded(int $amount, int $refunded): self
+    {
+        return match (true) {
+            $refunded <= 0 => self::Completed,
+            $refunded >= $amount => self::Refunded,
+            default => self::PartiallyRefunded,
+        };
+    }
+
+    /**
      * The status after refunding $refund on top of what was already refunded.
      */
     public function afterRefund(int $amount, int $alreadyRefunded, int $refund): self

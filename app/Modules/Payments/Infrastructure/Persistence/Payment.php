@@ -9,6 +9,7 @@ use App\Modules\Payments\Domain\PayableType;
 use App\Modules\Payments\Domain\PaymentMethod;
 use App\Modules\Payments\Domain\PaymentStatus;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -39,7 +40,18 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'received_by',
     'received_at',
     'reconciliation_id',
+    'provider_account_id',
+    'provider_method',
+    'provider_data',
+    'checkout_token_hash',
+    'checkout_token',
+    'expires_at',
+    'requested_by',
+    'failure_reason',
+    'sync_attempts',
+    'last_synced_at',
 ])]
+#[Hidden(['checkout_token', 'checkout_token_hash'])]
 class Payment extends Model
 {
     use HasUlids;
@@ -69,6 +81,27 @@ class Payment extends Model
     }
 
     /**
+     * @return BelongsTo<PaymentProviderAccount, $this>
+     */
+    public function providerAccount(): BelongsTo
+    {
+        return $this->belongsTo(PaymentProviderAccount::class, 'provider_account_id');
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function requestedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'requested_by');
+    }
+
+    public function isOnline(): bool
+    {
+        return $this->provider !== 'offline';
+    }
+
+    /**
      * What this payment still counts towards its payable.
      */
     public function netAmount(): int
@@ -91,6 +124,11 @@ class Payment extends Model
             'tendered_amount' => 'integer',
             'change_amount' => 'integer',
             'received_at' => 'immutable_datetime',
+            'provider_data' => 'array',
+            'checkout_token' => 'encrypted',
+            'expires_at' => 'immutable_datetime',
+            'last_synced_at' => 'immutable_datetime',
+            'sync_attempts' => 'integer',
         ];
     }
 }

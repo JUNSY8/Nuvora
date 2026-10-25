@@ -158,6 +158,8 @@ final class CashReconciliation
         return Payment::query()
             ->where('tenant_id', $tenantId)
             ->where('received_by', $cashierId)
+            // Online payments never pass through a drawer.
+            ->where('provider', 'offline')
             ->whereNull('reconciliation_id')
             ->whereIn('status', PaymentStatus::collectedValues())
             ->orderBy('received_at');
@@ -171,6 +173,8 @@ final class CashReconciliation
         return PaymentRefund::query()
             ->where('tenant_id', $tenantId)
             ->where('refunded_by', $cashierId)
+            ->where('provider', 'offline')
+            ->where('status', 'completed')
             ->whereNull('reconciliation_id')
             ->orderBy('refunded_at');
     }

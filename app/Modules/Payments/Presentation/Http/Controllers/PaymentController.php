@@ -96,6 +96,8 @@ final class PaymentController
             $request->amount(),
             (string) $request->validated('reason'),
             $request->idempotencyKey(),
+            $request->channel(),
+            $request->manualMethod(),
         );
 
         return $this->respond($request, $outcome, 201, $context);

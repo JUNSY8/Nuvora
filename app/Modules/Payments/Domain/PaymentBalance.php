@@ -7,7 +7,9 @@ namespace App\Modules\Payments\Domain;
 /**
  * What a payable owes against what was collected for it, with refunds
  * already subtracted. A payable that owes nothing (covered by a membership,
- * free within the grace time, unpriced) does not require payment.
+ * free within the grace time, unpriced) does not require payment. An
+ * online approval that arrives after the charge was paid another way
+ * leaves it overpaid, to be refunded.
  */
 final class PaymentBalance
 {
@@ -27,6 +29,7 @@ final class PaymentBalance
             $this->due <= 0 => 'not_required',
             $this->paid <= 0 => 'pending',
             $this->paid < $this->due => 'partial',
+            $this->paid > $this->due => 'overpaid',
             default => 'paid',
         };
     }
