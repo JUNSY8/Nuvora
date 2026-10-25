@@ -69,6 +69,14 @@ function collect(period: MembershipPeriod): void {
   }
 }
 
+function onLinked(payment: Payment): void {
+  const current = membership.value
+
+  if (current) {
+    emit('changed', current, `Enlace de pago de ${formatMoney(payment.amount, payment.currency)} creado.`)
+  }
+}
+
 async function onPaid(payment: Payment): Promise<void> {
   collecting.value = null
   const id = membership.value?.id
@@ -425,5 +433,5 @@ watch(() => props.membershipId, (id) => {
     </div>
   </BaseModal>
 
-  <CollectPaymentModal :payable="collecting" @close="collecting = null" @paid="onPaid" />
+  <CollectPaymentModal :payable="collecting" @close="collecting = null" @paid="onPaid" @linked="onLinked" />
 </template>

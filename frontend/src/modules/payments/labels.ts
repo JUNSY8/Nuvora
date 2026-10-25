@@ -24,6 +24,48 @@ export const balanceStatus: Record<PaymentBalance['status'], { label: string; to
   pending: { label: 'Por cobrar', tone: 'warning' },
   partial: { label: 'Pago parcial', tone: 'info' },
   paid: { label: 'Pagado', tone: 'success' },
+  overpaid: { label: 'Pagado de más', tone: 'danger' },
+}
+
+export const providerName: Record<string, string> = {
+  offline: 'En caja',
+  wompi: 'Wompi',
+  payu: 'PayU',
+}
+
+export const refundStatus: Record<'pending' | 'completed' | 'failed', { label: string; tone: Tone }> = {
+  pending: { label: 'En proceso', tone: 'warning' },
+  completed: { label: 'Devuelto', tone: 'success' },
+  failed: { label: 'Rechazado', tone: 'danger' },
+}
+
+export const reconciliationIssue: Record<string, string> = {
+  not_found: 'La pasarela no tiene esta transacción',
+  status_mismatch: 'Recibido aquí, no aprobado en la pasarela',
+  amount_mismatch: 'La pasarela aprobó otro valor',
+  overpaid: 'El cobro quedó pagado de más: reembolsa la diferencia',
+  unreachable: 'La pasarela no respondió',
+}
+
+// Names of the credential fields each provider asks for.
+export const credentialLabel: Record<string, string> = {
+  public_key: 'Llave pública',
+  private_key: 'Llave privada',
+  events_secret: 'Secreto de eventos',
+  integrity_secret: 'Secreto de integridad',
+  merchant_id: 'ID del comercio (merchantId)',
+  account_id: 'ID de la cuenta (accountId)',
+  api_key: 'API Key',
+  api_login: 'API Login',
+}
+
+// The receipt number, or what a payment without one is.
+export function paymentNumber(payment: { number: string | null; status: PaymentStatus }): string {
+  if (payment.number) {
+    return payment.number
+  }
+
+  return payment.status === 'pending' ? 'Enlace pendiente' : 'Sin recibo'
 }
 
 export function newPaymentDraft(): PaymentDraft {

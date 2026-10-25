@@ -93,9 +93,19 @@ function collect(session: ParkingSession): void {
   }
 }
 
+function onLinked(): void {
+  toasts.success('Enlace de pago creado. Cópialo y envíalo al cliente.')
+}
+
+// After a link the dialog stays open to copy it; the list refreshes on close.
+function onCollectClosed(): void {
+  collecting.value = null
+  void load(meta.value?.current_page ?? 1)
+}
+
 function onPaid(payment: Payment): void {
   collecting.value = null
-  toasts.success(`Pago ${payment.number} registrado: ${formatMoney(payment.amount, payment.currency)}${payment.change_amount ? `, vueltas ${formatMoney(payment.change_amount, payment.currency)}` : ''}.`)
+  toasts.success(`Pago ${payment.number ?? ''} registrado: ${formatMoney(payment.amount, payment.currency)}${payment.change_amount ? `, vueltas ${formatMoney(payment.change_amount, payment.currency)}` : ''}.`)
   void load(meta.value?.current_page ?? 1)
 }
 
@@ -253,6 +263,6 @@ watch(() => [filters.lot_id, filters.status, filters.from_date, filters.to_date,
       <PaginationBar v-if="meta && state === 'ready'" :meta="meta" @change="load" />
     </div>
 
-    <CollectPaymentModal :payable="collecting" @close="collecting = null" @paid="onPaid" />
+    <CollectPaymentModal :payable="collecting" @close="onCollectClosed" @paid="onPaid" @linked="onLinked" />
   </div>
 </template>

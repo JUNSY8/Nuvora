@@ -39,6 +39,14 @@ export const router = createRouter({
       meta: { title: 'Restablecer contraseña' },
     },
     {
+      // Payment link for the customer: public, the token in the URL is the access.
+      path: '/pagar/:token',
+      name: 'public-checkout',
+      component: () => import('@/modules/payments/PublicCheckoutView.vue'),
+      props: true,
+      meta: { title: 'Pagar' },
+    },
+    {
       // Printable receipt, outside the app frame so only the receipt prints.
       path: '/pagos/:paymentId/recibo',
       name: 'payment-receipt',

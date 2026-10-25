@@ -13,8 +13,9 @@ import { listParkingLots } from '@/modules/parking/api'
 import type { ParkingLot } from '@/modules/parking/types'
 import { listPayments } from '@/modules/payments/api'
 import CashClosingPanel from '@/modules/payments/CashClosingPanel.vue'
-import { paymentMethod, paymentMethods, paymentStatus } from '@/modules/payments/labels'
+import { paymentMethod, paymentMethods, paymentNumber, paymentStatus, providerName } from '@/modules/payments/labels'
 import PaymentDetailModal from '@/modules/payments/PaymentDetailModal.vue'
+import ProvidersPanel from '@/modules/payments/ProvidersPanel.vue'
 import type { Payment, PaymentMethod, PaymentStatus, PaymentTotals } from '@/modules/payments/types'
 import { formatDateTime, formatNumber } from '@/services/format'
 import { apiErrorCode, parseApiError } from '@/services/http'
@@ -48,11 +49,12 @@ const filters = reactive<{ search: string; lot_id: string; method: '' | PaymentM
 })
 const debouncedSearch = refDebounced(computed(() => filters.search), 300)
 
-const tabs = [
+const tabs = computed(() => [
   { key: 'pagos', label: 'Pagos', icon: 'ri-bank-card-line' },
   { key: 'caja', label: 'Cierre de caja', icon: 'ri-safe-2-line' },
-]
-const activeTab = computed(() => (route.query.tab === 'caja' ? 'caja' : 'pagos'))
+  ...(can('payments.configure') || can('payments.reconcile') ? [{ key: 'pasarelas', label: 'Pasarelas', icon: 'ri-global-line' }] : []),
+])
+const activeTab = computed(() => tabs.value.find((tab) => tab.key === route.query.tab)?.key ?? 'pagos')
 const timezone = computed(() => auth.currentTenant?.timezone ?? 'America/Bogota')
 const currency = computed(() => totals.value?.currencies[0] ?? lots.value[0]?.currency ?? 'COP')
 const mixedCurrencies = computed(() => (totals.value?.currencies.length ?? 0) > 1)
@@ -245,14 +247,18 @@ onMounted(load)
               <tbody>
                 <tr v-for="payment in payments" :key="payment.id">
                   <td class="whitespace-nowrap">
-                    <code class="text-xs text-vz-heading">{{ payment.number }}</code>
+                    <code class="text-xs" :class="payment.number ? 'text-vz-heading' : 'text-vz-muted'">{{ paymentNumber(payment) }}</code>
                     <p class="text-xs text-vz-muted">{{ formatDateTime(payment.received_at, timezone) }}</p>
                   </td>
                   <td>
                     {{ payment.description }}
                     <p v-if="payment.reference" class="text-xs text-vz-muted">Ref. {{ payment.reference }}</p>
                   </td>
-                  <td class="whitespace-nowrap"><i :class="paymentMethod[payment.method].icon" aria-hidden="true" /> {{ paymentMethod[payment.method].label }}</td>
+                  <td class="whitespace-nowrap">
+                    <template v-if="payment.status === 'pending' && payment.provider !== 'offline'"><i class="ri-links-line" aria-hidden="true" /> Enlace</template>
+                    <template v-else><i :class="paymentMethod[payment.method].icon" aria-hidden="true" /> {{ paymentMethod[payment.method].label }}</template>
+                    <p v-if="payment.provider !== 'offline'" class="text-xs text-vz-muted">{{ providerName[payment.provider] ?? payment.provider }}</p>
+                  </td>
                   <td class="text-right whitespace-nowrap">
                     <span class="font-medium text-vz-heading">{{ formatMoney(payment.amount, payment.currency) }}</span>
                     <p v-if="payment.refunded_amount > 0" class="text-xs text-vz-muted">-{{ formatMoney(payment.refunded_amount, payment.currency) }}</p>
@@ -263,9 +269,9 @@ onMounted(load)
                       <StatusBadge v-if="payment.reconciled" label="Cerrado" tone="muted" icon="ri-safe-2-line" />
                     </div>
                   </td>
-                  <td>{{ payment.received_by?.name ?? '—' }}</td>
+                  <td>{{ payment.received_by?.name ?? (payment.provider !== 'offline' ? 'En línea' : '—') }}</td>
                   <td class="text-right">
-                    <button class="vz-btn vz-btn-sm vz-btn-light" type="button" :aria-label="`Ver el pago ${payment.number}`" @click="viewing = payment.id">
+                    <button class="vz-btn vz-btn-sm vz-btn-light" type="button" :aria-label="`Ver el pago ${paymentNumber(payment)}`" @click="viewing = payment.id">
                       <i class="ri-eye-line" aria-hidden="true" /> Ver
                     </button>
                   </td>
@@ -276,8 +282,12 @@ onMounted(load)
           <PaginationBar v-if="meta" :meta="meta" @change="loadList" />
         </div>
 
-        <div v-else id="panel-caja" role="tabpanel" aria-labelledby="tab-caja">
+        <div v-else-if="activeTab === 'caja'" id="panel-caja" role="tabpanel" aria-labelledby="tab-caja">
           <CashClosingPanel :timezone="timezone" @closed="loadList(1)" />
+        </div>
+
+        <div v-else id="panel-pasarelas" role="tabpanel" aria-labelledby="tab-pasarelas">
+          <ProvidersPanel :timezone="timezone" @reconciled="loadList(meta?.current_page ?? 1)" />
         </div>
       </div>
     </template>
