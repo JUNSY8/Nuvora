@@ -7,6 +7,7 @@ namespace App\Modules\ParkingSessions\Presentation\Http;
 use App\Modules\Parking\Domain\Occupancy;
 use App\Modules\ParkingSessions\Application\SessionReferences;
 use App\Modules\ParkingSessions\Infrastructure\Persistence\ParkingSession;
+use App\Modules\Payments\Domain\PaymentBalance;
 
 final class SessionPayload
 {
@@ -42,6 +43,7 @@ final class SessionPayload
             'cancel_reason' => $session->cancel_reason,
             'notes' => $session->notes,
             'charge' => self::charge($session),
+            'payment' => self::payment($session, $refs),
             'reservation' => $session->reservation_id === null ? null : ($refs->reservations[(string) $session->reservation_id] ?? null),
             'membership' => $session->membership_id === null ? null : ($refs->memberships[(string) $session->membership_id] ?? null),
         ];
@@ -75,6 +77,21 @@ final class SessionPayload
             'lines' => $pricing['lines'] ?? [],
             'reason' => $pricing['reason'] ?? null,
         ];
+    }
+
+    /**
+     * What the stay owes and what was collected. Only closed, priced stays
+     * charge money; the rest report "not_required".
+     *
+     * @return array{status: string, due: int, paid: int, balance: int}|null
+     */
+    private static function payment(ParkingSession $session, SessionReferences $refs): ?array
+    {
+        if ($session->charge_status === null) {
+            return null;
+        }
+
+        return ($refs->payments[(string) $session->id] ?? new PaymentBalance(0, 0))->toArray();
     }
 
     /**

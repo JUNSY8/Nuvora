@@ -43,6 +43,7 @@ final class ParkingSessionController
             'vehicle_id' => ['nullable', 'ulid'],
             'from_date' => ['nullable', 'date_format:Y-m-d'],
             'to_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from_date'],
+            'unpaid' => ['nullable', 'boolean'],
         ]);
 
         [$page, $perPage] = $this->pagination($request, 25, 100);
@@ -55,6 +56,7 @@ final class ParkingSessionController
             vehicleId: isset($filters['vehicle_id']) ? strtolower((string) $filters['vehicle_id']) : null,
             fromDate: $filters['from_date'] ?? null,
             toDate: $filters['to_date'] ?? null,
+            unpaid: (bool) ($filters['unpaid'] ?? false),
         ), $page, $perPage);
 
         $refs = SessionReferences::for($tenantId, $sessions->items());
@@ -112,6 +114,8 @@ final class ParkingSessionController
             $request->notes(),
             $request->idempotencyKey(),
             $request->discountId(),
+            $request->payment(),
+            $request->quoteToken(),
         );
 
         return $this->respond($request, $outcome, 200, $context);
@@ -140,6 +144,7 @@ final class ParkingSessionController
             'session' => SessionPayload::session($session, $refs),
             'replayed' => $outcome->replayed,
             'notices' => $outcome->notices,
+            'payment' => $outcome->payment,
         ], $outcome->replayed ? 200 : $status, $request);
     }
 }

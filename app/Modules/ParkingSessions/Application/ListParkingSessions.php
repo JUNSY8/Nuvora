@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Modules\ParkingSessions\Application;
 
 use App\Modules\Parking\Application\ParkingInfrastructureDirectory;
+use App\Modules\ParkingSessions\Domain\ChargeStatus;
 use App\Modules\ParkingSessions\Infrastructure\Persistence\ParkingSession;
+use App\Modules\Payments\Application\PaymentDirectory;
+use App\Modules\Payments\Domain\PayableType;
 use App\Modules\Tenancy\Application\TenantAuthorizer;
 use App\Modules\Tenancy\Domain\Permission;
 use App\Modules\Vehicles\Domain\Plate;
@@ -18,6 +21,7 @@ final class ListParkingSessions
     public function __construct(
         private readonly TenantAuthorizer $authorizer,
         private readonly ParkingInfrastructureDirectory $parking,
+        private readonly PaymentDirectory $payments,
     ) {}
 
     /**
@@ -57,6 +61,11 @@ final class ListParkingSessions
 
         if ($filters->vehicleId !== null) {
             $query->where('vehicle_id', $filters->vehicleId);
+        }
+
+        if ($filters->unpaid) {
+            $query->where('charge_status', ChargeStatus::Priced->value)
+                ->where('total_amount', '>', $this->payments->paidAmountQuery($tenantId, PayableType::ParkingSession, 'parking_sessions.id'));
         }
 
         $search = $filters->search === null ? '' : Plate::searchTerm($filters->search);

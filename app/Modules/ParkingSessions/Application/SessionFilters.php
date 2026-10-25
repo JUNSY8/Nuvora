@@ -11,6 +11,7 @@ final class SessionFilters
     /**
      * @param  string|null  $fromDate  Y-m-d in the lot's timezone; requires $lotId
      * @param  string|null  $toDate  Y-m-d in the lot's timezone; requires $lotId
+     * @param  bool  $unpaid  only closed stays that still owe part of their charge
      */
     public function __construct(
         public readonly ?string $lotId = null,
@@ -19,5 +20,6 @@ final class SessionFilters
         public readonly ?string $vehicleId = null,
         public readonly ?string $fromDate = null,
         public readonly ?string $toDate = null,
+        public readonly bool $unpaid = false,
     ) {}
 }

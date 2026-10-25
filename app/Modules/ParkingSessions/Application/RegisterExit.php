@@ -7,11 +7,15 @@ namespace App\Modules\ParkingSessions\Application;
 use App\Modules\Audit\Application\RecordAuditEvent;
 use App\Modules\Parking\Application\ParkingSpaceAllocator;
 use App\Modules\Parking\Domain\GateDirection;
+use App\Modules\ParkingSessions\Domain\ChargeStatus;
 use App\Modules\ParkingSessions\Domain\SessionRuleViolation;
 use App\Modules\ParkingSessions\Domain\SessionSource;
 use App\Modules\ParkingSessions\Domain\SessionStatus;
 use App\Modules\ParkingSessions\Domain\StayDuration;
 use App\Modules\ParkingSessions\Infrastructure\Persistence\ParkingSession;
+use App\Modules\Payments\Application\CollectPayment;
+use App\Modules\Payments\Application\PaymentData;
+use App\Modules\Payments\Domain\PayableType;
 use App\Modules\Reservations\Application\ReservationDirectory;
 use App\Modules\Shared\Infrastructure\Realtime\LiveUpdates;
 use App\Modules\Tenancy\Application\TenantAuthorizer;
@@ -23,8 +27,12 @@ use Illuminate\Support\Facades\DB;
 /**
  * Manual exit: closes the open session, records the stay length, prices it
  * and frees the space in one transaction. The session row is locked, so two
- * exits of the same stay cannot both succeed. The charge is computed and
- * stored here; collecting it arrives with payments (0.9).
+ * exits of the same stay cannot both succeed.
+ *
+ * A quote token prices the stay at the quoted instant while its hold lasts.
+ * A payment sent with the exit is collected in the same transaction: if it
+ * fails (not enough cash...), the exit fails too. Without a payment the
+ * stay closes owing its charge, to be collected later.
  */
 final class RegisterExit
 {
@@ -38,14 +46,19 @@ final class RegisterExit
         private readonly ReservationDirectory $reservations,
         private readonly RecordAuditEvent $audit,
         private readonly LiveUpdates $live,
+        private readonly CollectPayment $collect,
     ) {}
 
-    public function handle(string $actorUserId, string $tenantId, string $sessionId, ?string $gateId, ?string $notes, ?string $idempotencyKey, ?string $discountId = null): SessionOutcome
+    public function handle(string $actorUserId, string $tenantId, string $sessionId, ?string $gateId, ?string $notes, ?string $idempotencyKey, ?string $discountId = null, ?ExitPayment $payment = null, ?string $quoteToken = null): SessionOutcome
     {
         $this->authorizer->assert($actorUserId, $tenantId, Permission::SESSIONS_CLOSE);
 
         if ($discountId !== null) {
             $this->authorizer->assert($actorUserId, $tenantId, Permission::SESSIONS_DISCOUNT);
+        }
+
+        if ($payment !== null) {
+            $this->authorizer->assert($actorUserId, $tenantId, Permission::PAYMENTS_CREATE);
         }
 
         if ($idempotencyKey !== null && ($previous = $this->lookup->byExitKey($tenantId, $idempotencyKey)) !== null) {
@@ -57,8 +70,9 @@ final class RegisterExit
         }
 
         $replayed = false;
+        $collected = null;
 
-        $session = DB::transaction(function () use ($actorUserId, $tenantId, $sessionId, $gateId, $notes, $idempotencyKey, $discountId, &$replayed): ParkingSession {
+        $session = DB::transaction(function () use ($actorUserId, $tenantId, $sessionId, $gateId, $notes, $idempotencyKey, $discountId, $payment, $quoteToken, &$replayed, &$collected): ParkingSession {
             $session = $this->lookup->find($tenantId, $sessionId, lock: true);
 
             // A concurrent retry of the same exit waited on the lock: answer it with the closed session.
@@ -76,8 +90,9 @@ final class RegisterExit
 
             $exitAt = now()->toImmutable();
             $minutes = StayDuration::minutes($session->entry_at, $exitAt);
+            $pricedAt = $quoteToken === null ? null : QuoteToken::pricedAt($quoteToken, $tenantId, (string) $session->id, $discountId, $exitAt);
             $session->fill([
-                ...$this->pricing->charge($tenantId, $session, $exitAt, $discountId),
+                ...$this->pricing->charge($tenantId, $session, $pricedAt ?? $exitAt, $discountId),
                 'status' => SessionStatus::Closed,
                 'exit_at' => $exitAt,
                 'duration_minutes' => $minutes,
@@ -106,6 +121,16 @@ final class RegisterExit
                 'charge_status' => $session->charge_status?->value,
             ]);
 
+            if ($payment !== null && $session->charge_status === ChargeStatus::Priced && (int) $session->total_amount > 0) {
+                $collected = $this->collect->handle($actorUserId, $tenantId, new PaymentData(
+                    payableType: PayableType::ParkingSession,
+                    payableId: (string) $session->id,
+                    method: $payment->method,
+                    tendered: $payment->tendered,
+                    reference: $payment->reference,
+                ), $idempotencyKey === null ? null : 'exit-'.substr(hash('sha256', $idempotencyKey), 0, 40))->payment;
+            }
+
             return $session;
         });
 
@@ -129,13 +154,21 @@ final class RegisterExit
                 'discount_id' => $session->discount_id,
                 'total_amount' => $session->total_amount,
                 'currency' => $session->currency,
-                'charge_status' => $session->charge_status?->value,
+                'payment_id' => $collected?->id,
             ],
         );
 
         $this->live->touch(LiveUpdates::tenant($tenantId), LiveUpdates::lot($tenantId, (string) $session->parking_lot_id));
 
-        return new SessionOutcome($session, false);
+        return new SessionOutcome($session, false, payment: $collected === null ? null : [
+            'id' => (string) $collected->id,
+            'number' => $collected->number,
+            'method' => $collected->method->value,
+            'amount' => $collected->amount,
+            'currency' => $collected->currency,
+            'tendered_amount' => $collected->tendered_amount,
+            'change_amount' => $collected->change_amount,
+        ]);
     }
 
     public static function notOpen(ParkingSession $session): SessionRuleViolation

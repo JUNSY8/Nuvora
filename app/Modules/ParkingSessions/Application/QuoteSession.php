@@ -10,8 +10,8 @@ use App\Modules\Tenancy\Domain\Permission;
 
 /**
  * Price of an open stay if it left now, shown before confirming the exit.
- * Nothing is stored; the exit prices again at its own moment, so a quote
- * shown a minute earlier can be one fraction short.
+ * Nothing is stored. The quote carries a token that holds this price for a
+ * few minutes; without it, the exit prices again at its own moment.
  */
 final class QuoteSession
 {
@@ -38,6 +38,14 @@ final class QuoteSession
             throw RegisterExit::notOpen($session);
         }
 
-        return $this->pricing->preview($tenantId, $session, now()->toImmutable(), $discountId);
+        $pricedAt = now()->toImmutable();
+        $hold = QuoteToken::issue($tenantId, (string) $session->id, $discountId, $pricedAt);
+
+        return [
+            ...$this->pricing->preview($tenantId, $session, $pricedAt, $discountId),
+            'priced_at' => $pricedAt->toIso8601String(),
+            'quote_token' => $hold['token'],
+            'quote_expires_at' => $hold['expires_at'],
+        ];
     }
 }

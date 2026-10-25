@@ -9,6 +9,8 @@ use App\Modules\Parking\Domain\Occupancy;
 use App\Modules\ParkingSessions\Domain\ChargeStatus;
 use App\Modules\ParkingSessions\Domain\SessionStatus;
 use App\Modules\ParkingSessions\Infrastructure\Persistence\ParkingSession;
+use App\Modules\Payments\Application\PaymentDirectory;
+use App\Modules\Payments\Domain\PayableType;
 use App\Modules\Shared\Infrastructure\Realtime\LiveUpdates;
 use App\Modules\Tenancy\Application\TenantAuthorizer;
 use App\Modules\Tenancy\Domain\Permission;
@@ -26,10 +28,11 @@ final class OperationsSummary
         private readonly TenantAuthorizer $authorizer,
         private readonly ParkingInfrastructureDirectory $parking,
         private readonly LiveUpdates $live,
+        private readonly PaymentDirectory $payments,
     ) {}
 
     /**
-     * @return array{lot: array<string, mixed>, occupancy: Occupancy, open: int, open_without_space: int, entries_today: int, exits_today: int, charged_today: int, unpriced_today: int, covered_today: int, currency: string, cancelled_today: int, average_stay_minutes_today: int|null, oldest_open_entry_at: string|null, day_starts_at: string, version: string}
+     * @return array{lot: array<string, mixed>, occupancy: Occupancy, open: int, open_without_space: int, entries_today: int, exits_today: int, charged_today: int, collected_today: int, unpaid_today: int, unpriced_today: int, covered_today: int, currency: string, cancelled_today: int, average_stay_minutes_today: int|null, oldest_open_entry_at: string|null, day_starts_at: string, version: string}
      */
     public function handle(string $actorUserId, string $tenantId, string $lotId): array
     {
@@ -70,6 +73,14 @@ final class OperationsSummary
             'entries_today' => $sessions()->where('entry_at', '>=', $dayStart)->where('status', '!=', SessionStatus::Cancelled->value)->count(),
             'exits_today' => (int) ($closedToday->total ?? 0),
             'charged_today' => (int) ($closedToday->charged ?? 0),
+            // Money taken today at this lot (net of refunds), whatever day the stay closed.
+            'collected_today' => $this->payments->collectedAt($tenantId, $lot['id'], $dayStart),
+            'unpaid_today' => $sessions()
+                ->where('status', SessionStatus::Closed->value)
+                ->where('exit_at', '>=', $dayStart)
+                ->where('charge_status', ChargeStatus::Priced->value)
+                ->where('total_amount', '>', $this->payments->paidAmountQuery($tenantId, PayableType::ParkingSession, 'parking_sessions.id'))
+                ->count(),
             'unpriced_today' => (int) ($closedToday->unpriced ?? 0),
             'covered_today' => (int) ($closedToday->covered ?? 0),
             'currency' => $lot['currency'],

@@ -14,10 +14,12 @@ final class SessionOutcome
 {
     /**
      * @param  list<array{type: string, message: string}>  $notices  what the operator should know (membership coverage...)
+     * @param  array<string, mixed>|null  $payment  the payment collected with an exit, for the change and the receipt
      */
     public function __construct(
         public readonly ParkingSession $session,
         public readonly bool $replayed,
         public readonly array $notices = [],
+        public readonly ?array $payment = null,
     ) {}
 }

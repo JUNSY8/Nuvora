@@ -16,6 +16,20 @@ return [
 
     'default_timezone' => env('NUVORA_DEFAULT_TIMEZONE', 'America/Bogota'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Payments
+    |--------------------------------------------------------------------------
+    |
+    | Minutes an exit quote keeps its price while the cashier collects. See
+    | ADR-019.
+    |
+    */
+
+    'payments' => [
+        'quote_hold_minutes' => (int) env('NUVORA_QUOTE_HOLD_MINUTES', 5),
+    ],
+
     'features' => [
         'reservations' => (bool) env('FEATURE_RESERVATIONS', false),
         'lpr' => (bool) env('FEATURE_LPR', false),
