@@ -72,6 +72,8 @@ final class Permission
 
     public const PAYMENTS_REFUND = 'payments.refund';
 
+    public const PAYMENTS_RECONCILE = 'payments.reconcile';
+
     public const REPORTS_VIEW = 'reports.view';
 
     /**
@@ -113,6 +115,7 @@ final class Permission
             self::PAYMENTS_VIEW,
             self::PAYMENTS_CREATE,
             self::PAYMENTS_REFUND,
+            self::PAYMENTS_RECONCILE,
             self::REPORTS_VIEW,
         ];
     }

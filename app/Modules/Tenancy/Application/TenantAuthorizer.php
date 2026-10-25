@@ -20,6 +20,13 @@ final class TenantAuthorizer
         }
     }
 
+    public function allows(string $userId, string $tenantId, string $permission): bool
+    {
+        $access = $this->memberships->find($userId, $tenantId);
+
+        return $access !== null && in_array($permission, $access->permissions, true);
+    }
+
     public function isOwner(string $userId, string $tenantId): bool
     {
         $access = $this->memberships->find($userId, $tenantId);

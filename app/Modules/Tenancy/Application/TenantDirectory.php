@@ -18,4 +18,12 @@ final class TenantDirectory
 
         return is_string($timezone) && $timezone !== '' ? $timezone : (string) config('app.timezone', 'UTC');
     }
+
+    /**
+     * Name printed on receipts.
+     */
+    public function name(string $tenantId): string
+    {
+        return (string) Tenant::query()->whereKey($tenantId)->value('name');
+    }
 }

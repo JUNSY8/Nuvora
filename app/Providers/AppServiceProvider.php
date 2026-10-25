@@ -3,6 +3,9 @@
 namespace App\Providers;
 
 use App\Modules\Audit\Infrastructure\AuditContext;
+use App\Modules\Memberships\Application\PeriodPayables;
+use App\Modules\ParkingSessions\Application\SessionPayables;
+use App\Modules\Payments\Application\PayableSources;
 use App\Modules\Tenancy\Infrastructure\TenantContext;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -16,6 +19,10 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(TenantContext::class);
         $this->app->singleton(AuditContext::class);
+
+        // Each module that charges registers how Payments reaches its payables. See ADR-019.
+        $this->app->tag([SessionPayables::class, PeriodPayables::class], PayableSources::TAG);
+        $this->app->when(PayableSources::class)->needs('$sources')->giveTagged(PayableSources::TAG);
     }
 
     public function boot(): void
