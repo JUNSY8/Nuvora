@@ -5,6 +5,9 @@ import BaseModal from '@/components/ui/BaseModal.vue'
 import { useFieldErrors } from '@/composables/useFieldErrors'
 import { usePermissions } from '@/composables/usePermissions'
 import type { ParkingGate } from '@/modules/parking/types'
+import { draftTender, newPaymentDraft } from '@/modules/payments/labels'
+import PaymentFields from '@/modules/payments/PaymentFields.vue'
+import type { PaymentDraft } from '@/modules/payments/types'
 import { quoteSession, registerExit } from '@/modules/sessions/api'
 import type { ParkingSession, SessionResult } from '@/modules/sessions/types'
 import { listDiscounts } from '@/modules/tariffs/api'
@@ -33,6 +36,8 @@ const quote = ref<Quote | null>(null)
 const quoteError = ref('')
 const quoting = ref(false)
 const saving = ref(false)
+const collectNow = ref(true)
+const draft = ref<PaymentDraft>(newPaymentDraft())
 const errors = useFieldErrors()
 let attemptKey = newIdempotencyKey()
 let quoteRequest = 0
@@ -40,6 +45,15 @@ let quoteRequest = 0
 const stay = computed(() => (props.session ? formatDuration(minutesSince(props.session.entry_at, props.now)) : '—'))
 // A stay covered by a membership takes no discount.
 const canDiscount = computed(() => can('sessions.discount') && can('tariffs.view') && !props.session?.membership)
+const canCollect = computed(() => can('payments.create'))
+// Only a priced stay with something to pay is collected at the desk.
+const amountDue = computed(() => (quote.value?.status === 'priced' ? quote.value.total ?? 0 : 0))
+const collecting = computed(() => canCollect.value && collectNow.value && amountDue.value > 0)
+// The API names the nested fields "payment.method"...; the fields component uses the short names.
+const paymentErrors = computed(() => Object.fromEntries(Object.entries(errors.fields.value)
+  .filter(([key]) => key.startsWith('payment.'))
+  .map(([key, message]) => [key.slice('payment.'.length), message])))
+const tender = computed(() => draftTender(draft.value, amountDue.value, quote.value?.currency ?? 'COP'))
 
 // The price shown is a preview: the exit prices again at its own moment.
 async function loadQuote(): Promise<void> {
@@ -89,6 +103,8 @@ watch(() => props.session, (session) => {
     discountId.value = ''
     discounts.value = []
     quote.value = null
+    collectNow.value = true
+    draft.value = newPaymentDraft()
     errors.clear()
     void loadQuote()
 
@@ -102,15 +118,23 @@ watch(discountId, () => {
   void loadQuote()
 })
 
-// The operations screen ticks every 30 s; a longer stay may reach another fraction.
-watch(() => props.now, () => {
-  if (props.session && !saving.value) {
+// The operations screen ticks every 30 s. The quote holds its price for a few
+// minutes, so it is only refreshed once that hold is over.
+watch(() => props.now, (now) => {
+  const expiresAt = quote.value?.quote_expires_at ? Date.parse(quote.value.quote_expires_at) : 0
+
+  if (props.session && !saving.value && now >= expiresAt) {
     void loadQuote()
   }
 })
 
 async function onConfirm(): Promise<void> {
   if (!props.session || saving.value) {
+    return
+  }
+
+  if (collecting.value && !tender.value.ok) {
+    errors.general.value = 'Revisa el efectivo recibido: debe cubrir el valor a cobrar.'
     return
   }
 
@@ -122,6 +146,10 @@ async function onConfirm(): Promise<void> {
       gate_id: gateId.value === '' ? null : gateId.value,
       notes: notes.value.trim() === '' ? null : notes.value.trim(),
       discount_id: discountId.value === '' ? null : discountId.value,
+      quote_token: quote.value?.quote_token ?? null,
+      payment: collecting.value
+        ? { method: draft.value.method, tendered_amount: tender.value.tendered, reference: tender.value.reference }
+        : null,
     }, attemptKey)
     emit('exited', result)
   } catch (error) {
@@ -185,7 +213,17 @@ async function onConfirm(): Promise<void> {
           <p v-if="errors.fields.value.discount_id" class="vz-error" role="alert">{{ errors.fields.value.discount_id }}</p>
         </div>
 
-        <p class="text-xs text-vz-muted">El recaudo y los medios de pago llegan con la versión de pagos; por ahora la salida registra el valor calculado.</p>
+        <section v-if="amountDue > 0 && quote" class="space-y-3 rounded-vz border border-vz-border p-3" aria-label="Cobro">
+          <template v-if="canCollect">
+            <label class="flex items-center gap-2 text-[13px] text-vz-heading">
+              <input v-model="collectNow" type="checkbox" class="size-4 accent-vz-primary" />
+              Cobrar ahora
+            </label>
+            <PaymentFields v-if="collectNow" v-model="draft" :amount="amountDue" :currency="quote.currency" :errors="paymentErrors" />
+            <p v-else class="text-xs text-vz-muted">La salida queda por cobrar; se puede cobrar después desde el historial.</p>
+          </template>
+          <p v-else class="text-xs text-vz-muted">Tu rol registra la salida; el cobro queda pendiente para caja.</p>
+        </section>
 
         <div v-if="gates.length > 0">
           <label class="vz-label" for="exit-gate">Puerta</label>
@@ -208,7 +246,7 @@ async function onConfirm(): Promise<void> {
         <button class="vz-btn vz-btn-light" type="button" @click="emit('close')">Cancelar</button>
         <button class="vz-btn vz-btn-primary" type="submit" :disabled="saving" autofocus>
           <i :class="saving ? 'ri-loader-4-line animate-spin' : 'ri-logout-box-r-line'" aria-hidden="true" />
-          Registrar salida
+          {{ collecting ? 'Cobrar y registrar salida' : 'Registrar salida' }}
         </button>
       </div>
     </form>

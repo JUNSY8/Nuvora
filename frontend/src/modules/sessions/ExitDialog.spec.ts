@@ -100,6 +100,54 @@ describe('ExitDialog', () => {
     wrapper.unmount()
   })
 
+  it('collects cash with the exit, shows the change and holds the quoted price', async () => {
+    useAuthStore().currentTenant = { id: 't1', name: 'Demo', slug: 'demo', timezone: 'America/Bogota', roles: [], permissions: ['sessions.close', 'payments.create'] }
+    vi.mocked(quoteSession).mockResolvedValue({ ...quote(650000), quote_token: 'hold-1', quote_expires_at: '2999-01-01T00:00:00Z' })
+    vi.mocked(registerExit).mockResolvedValue({ session, replayed: false } as SessionResult)
+
+    const wrapper = mount(ExitDialog, { props: { session: null, gates: [], timezone: 'America/Bogota', now: 0 }, attachTo: document.body })
+    await wrapper.setProps({ session })
+    await flushPromises()
+
+    // A quick bill fills the cash received.
+    const bill = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent?.replace(/\s/g, ' ').includes('$ 10.000'))!
+    bill.click()
+    await flushPromises()
+    expect(document.body.textContent?.replace(/\s/g, ' ')).toContain('Vueltas: $ 3.500')
+
+    // The 30 s tick does not quote again while the price is held.
+    await wrapper.setProps({ now: 30_000 })
+    await flushPromises()
+    expect(quoteSession).toHaveBeenCalledTimes(1)
+
+    document.querySelector<HTMLFormElement>('form')!.dispatchEvent(new Event('submit'))
+    await flushPromises()
+
+    expect(vi.mocked(registerExit).mock.calls[0]![1]).toMatchObject({
+      quote_token: 'hold-1',
+      payment: { method: 'cash', tendered_amount: 1000000, reference: null },
+    })
+    wrapper.unmount()
+  })
+
+  it('leaves the charge pending when the role does not collect', async () => {
+    useAuthStore().currentTenant = { id: 't1', name: 'Demo', slug: 'demo', timezone: 'America/Bogota', roles: [], permissions: ['sessions.close'] }
+    vi.mocked(quoteSession).mockResolvedValue(quote(650000))
+    vi.mocked(registerExit).mockResolvedValue({ session, replayed: false } as SessionResult)
+
+    const wrapper = mount(ExitDialog, { props: { session: null, gates: [], timezone: 'America/Bogota', now: 0 }, attachTo: document.body })
+    await wrapper.setProps({ session })
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('el cobro queda pendiente para caja')
+
+    document.querySelector<HTMLFormElement>('form')!.dispatchEvent(new Event('submit'))
+    await flushPromises()
+
+    expect(vi.mocked(registerExit).mock.calls[0]![1]).toMatchObject({ payment: null })
+    wrapper.unmount()
+  })
+
   it('shows a stay covered by a membership at zero and offers no discount', async () => {
     useAuthStore().currentTenant = { id: 't1', name: 'Demo', slug: 'demo', timezone: 'America/Bogota', roles: [], permissions: ['sessions.close', 'sessions.discount', 'tariffs.view'] }
     const member = { ...session, membership: { id: 'm1', code: 'M-7K3M9Q', plan: 'Mensual carro' } } as ParkingSession

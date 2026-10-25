@@ -10,6 +10,9 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { usePermissions } from '@/composables/usePermissions'
 import { listParkingLots } from '@/modules/parking/api'
 import type { ParkingLot } from '@/modules/parking/types'
+import CollectPaymentModal from '@/modules/payments/CollectPaymentModal.vue'
+import { balanceStatus } from '@/modules/payments/labels'
+import type { PayableSummary, Payment } from '@/modules/payments/types'
 import { listSessions } from '@/modules/sessions/api'
 import { sessionStatus, sessionStatusOrder } from '@/modules/sessions/labels'
 import type { ParkingSession, SessionStatus } from '@/modules/sessions/types'
@@ -18,9 +21,11 @@ import { formatDateTime, formatDuration } from '@/services/format'
 import { formatMoney } from '@/services/money'
 import { apiErrorCode, parseApiError } from '@/services/http'
 import { useAuthStore } from '@/stores/auth'
+import { useToastStore } from '@/stores/toast'
 import type { PageMeta } from '@/types/api'
 
 const auth = useAuthStore()
+const toasts = useToastStore()
 const route = useRoute()
 const { can } = usePermissions()
 
@@ -29,13 +34,15 @@ const meta = ref<PageMeta | null>(null)
 const lots = ref<ParkingLot[]>([])
 const state = ref<'loading' | 'ready' | 'denied' | 'no-tenant' | 'error'>('loading')
 const errorMessage = ref('')
+const collecting = ref<PayableSummary | null>(null)
 
-const filters = reactive<{ lot_id: string; status: '' | SessionStatus; search: string; from_date: string; to_date: string }>({
+const filters = reactive<{ lot_id: string; status: '' | SessionStatus; search: string; from_date: string; to_date: string; unpaid: boolean }>({
   lot_id: '',
   status: '',
   search: typeof route.query.search === 'string' ? route.query.search : '',
   from_date: '',
   to_date: '',
+  unpaid: route.query.unpaid === '1',
 })
 const debouncedSearch = refDebounced(computed(() => filters.search), 300)
 const datesNeedLot = computed(() => filters.lot_id === '' && (filters.from_date !== '' || filters.to_date !== ''))
@@ -63,6 +70,7 @@ async function load(page = 1): Promise<void> {
       search: debouncedSearch.value || undefined,
       from_date: filters.from_date || undefined,
       to_date: filters.to_date || undefined,
+      unpaid: filters.unpaid ? 1 : undefined,
     }, page)
     sessions.value = result.items
     meta.value = result.meta
@@ -72,6 +80,23 @@ async function load(page = 1): Promise<void> {
     state.value = code === 'FORBIDDEN' ? 'denied' : code === 'TENANT_REQUIRED' ? 'no-tenant' : 'error'
     errorMessage.value = parseApiError(error, 'No fue posible consultar las sesiones.')
   }
+}
+
+function collect(session: ParkingSession): void {
+  collecting.value = {
+    type: 'parking_session',
+    id: session.id,
+    title: `Estancia ${session.vehicle.plate}`,
+    subtitle: `${session.parking_lot.name} · ${formatDuration(session.duration_minutes)}`,
+    currency: session.charge?.currency ?? 'COP',
+    balance: session.payment?.balance ?? 0,
+  }
+}
+
+function onPaid(payment: Payment): void {
+  collecting.value = null
+  toasts.success(`Pago ${payment.number} registrado: ${formatMoney(payment.amount, payment.currency)}${payment.change_amount ? `, vueltas ${formatMoney(payment.change_amount, payment.currency)}` : ''}.`)
+  void load(meta.value?.current_page ?? 1)
 }
 
 onMounted(async () => {
@@ -86,7 +111,7 @@ onMounted(async () => {
   await load()
 })
 
-watch(() => [filters.lot_id, filters.status, filters.from_date, filters.to_date, debouncedSearch.value], () => load(1))
+watch(() => [filters.lot_id, filters.status, filters.from_date, filters.to_date, filters.unpaid, debouncedSearch.value], () => load(1))
 </script>
 
 <template>
@@ -135,6 +160,10 @@ watch(() => [filters.lot_id, filters.status, filters.from_date, filters.to_date,
           <label class="vz-label" for="history-to">Hasta</label>
           <input id="history-to" v-model="filters.to_date" class="vz-input" type="date" :min="filters.from_date || undefined" />
         </div>
+        <label class="flex items-center gap-2 text-[13px] text-vz-heading sm:col-span-2 xl:col-span-5">
+          <input v-model="filters.unpaid" type="checkbox" class="size-4 accent-vz-primary" />
+          Solo estancias por cobrar
+        </label>
         <p v-if="datesNeedLot" class="vz-error sm:col-span-2 xl:col-span-5" role="alert">Elige un parqueadero para filtrar por fecha: los días se cuentan en su zona horaria.</p>
       </div>
 
@@ -142,7 +171,7 @@ watch(() => [filters.lot_id, filters.status, filters.from_date, filters.to_date,
       <div v-else-if="sessions.length === 0" class="p-10 text-center">
         <i class="ri-history-line text-4xl text-vz-muted" aria-hidden="true" />
         <p class="mt-2 font-medium text-vz-heading">Sin sesiones</p>
-        <p class="text-[13px] text-vz-muted">Ninguna sesión coincide con los filtros.</p>
+        <p class="text-[13px] text-vz-muted">{{ filters.unpaid ? 'No hay estancias pendientes de cobro.' : 'Ninguna sesión coincide con los filtros.' }}</p>
       </div>
       <div v-else class="overflow-x-auto">
         <table class="vz-table">
@@ -191,6 +220,18 @@ watch(() => [filters.lot_id, filters.status, filters.from_date, filters.to_date,
               <td class="text-right whitespace-nowrap">
                 <template v-if="session.charge?.status === 'priced'">
                   <span class="font-medium text-vz-heading tabular-nums">{{ formatMoney(session.charge.total, session.charge.currency ?? 'COP') }}</span>
+                  <p v-if="session.payment && session.payment.status !== 'not_required'" class="mt-0.5 flex items-center justify-end gap-1.5">
+                    <StatusBadge :label="balanceStatus[session.payment.status].label" :tone="balanceStatus[session.payment.status].tone" />
+                    <button
+                      v-if="can('payments.create') && session.payment.balance > 0"
+                      class="vz-btn vz-btn-sm vz-btn-soft-success"
+                      type="button"
+                      :aria-label="`Cobrar ${formatMoney(session.payment.balance, session.charge.currency ?? 'COP')} de la estancia de ${session.vehicle.plate}`"
+                      @click="collect(session)"
+                    >
+                      <i class="ri-money-dollar-circle-line" aria-hidden="true" /> Cobrar
+                    </button>
+                  </p>
                   <p class="text-xs text-vz-muted">
                     {{ session.charge.grace_applied ? 'Gracia' : session.charge.tariff?.name }}<template v-if="session.charge.discount_rule"> · {{ session.charge.discount_rule.name }}</template>
                   </p>
@@ -211,5 +252,7 @@ watch(() => [filters.lot_id, filters.status, filters.from_date, filters.to_date,
       </div>
       <PaginationBar v-if="meta && state === 'ready'" :meta="meta" @change="load" />
     </div>
+
+    <CollectPaymentModal :payable="collecting" @close="collecting = null" @paid="onPaid" />
   </div>
 </template>

@@ -1,4 +1,5 @@
 import type { Occupancy, ParkingLotStatus } from '@/modules/parking/types'
+import type { PaymentBalance, PaymentMethod } from '@/modules/payments/types'
 import type { PriceLine, Quote } from '@/modules/tariffs/types'
 import type { VehicleType } from '@/modules/vehicles/types'
 
@@ -31,6 +32,8 @@ export interface ParkingSession {
   cancel_reason: string | null
   notes: string | null
   charge: SessionCharge | null
+  // What the stay owes once closed; null while open or when cancelled.
+  payment: PaymentBalance | null
   reservation: { id: string; code: string; status: string } | null
   membership: { id: string; code: string; plan: string } | null
 }
@@ -57,10 +60,30 @@ export interface SessionNotice {
   message: string
 }
 
+// Payment collected together with an exit.
+export interface ExitPaymentResult {
+  id: string
+  number: string
+  method: PaymentMethod
+  amount: number
+  currency: string
+  tendered_amount: number | null
+  change_amount: number | null
+}
+
 export interface SessionResult {
   session: ParkingSession
   replayed: boolean
   notices?: SessionNotice[]
+  payment?: ExitPaymentResult | null
+}
+
+export interface ExitInput {
+  gate_id: string | null
+  notes: string | null
+  discount_id: string | null
+  quote_token: string | null
+  payment: { method: PaymentMethod; tendered_amount: number | null; reference: string | null } | null
 }
 
 export interface OperationsSummary {
@@ -71,6 +94,8 @@ export interface OperationsSummary {
   entries_today: number
   exits_today: number
   charged_today: number
+  collected_today: number
+  unpaid_today: number
   unpriced_today: number
   covered_today: number
   currency: string
@@ -99,4 +124,5 @@ export interface SessionFilters {
   vehicle_id?: string
   from_date?: string
   to_date?: string
+  unpaid?: 0 | 1
 }

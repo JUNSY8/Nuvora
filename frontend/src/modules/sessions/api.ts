@@ -1,7 +1,7 @@
 import { ensureCsrfCookie, http } from '@/services/http'
 import type { ApiSuccess, PageMeta } from '@/types/api'
 
-import type { EntryInput, OperationsSummary, ParkingSession, SessionFilters, SessionResult } from '@/modules/sessions/types'
+import type { EntryInput, ExitInput, OperationsSummary, ParkingSession, SessionFilters, SessionResult } from '@/modules/sessions/types'
 import type { Quote } from '@/modules/tariffs/types'
 
 const base = '/api/v1/parking-sessions'
@@ -30,7 +30,8 @@ export async function registerEntry(input: EntryInput, idempotencyKey: string): 
   return response.data.data
 }
 
-// What the stay would cost if it left now; nothing is stored.
+// What the stay would cost if it left now; nothing is stored. The quote token
+// holds that price for a few minutes when sent with the exit.
 export async function quoteSession(sessionId: string, discountId: string | null): Promise<Quote> {
   const response = await http.get<ApiSuccess<{ quote: Quote }>>(`${base}/${sessionId}/quote`, {
     params: discountId ? { discount_id: discountId } : {},
@@ -39,7 +40,8 @@ export async function quoteSession(sessionId: string, discountId: string | null)
   return response.data.data.quote
 }
 
-export async function registerExit(sessionId: string, input: { gate_id: string | null; notes: string | null; discount_id: string | null }, idempotencyKey: string): Promise<SessionResult> {
+// A payment sent with the exit is collected in the same request; if it fails the vehicle stays inside.
+export async function registerExit(sessionId: string, input: ExitInput, idempotencyKey: string): Promise<SessionResult> {
   await ensureCsrfCookie()
   const response = await http.post<ApiSuccess<SessionResult>>(`${base}/${sessionId}/exit`, input, {
     headers: { 'Idempotency-Key': idempotencyKey },

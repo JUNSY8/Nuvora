@@ -39,6 +39,14 @@ export const router = createRouter({
       meta: { title: 'Restablecer contraseña' },
     },
     {
+      // Printable receipt, outside the app frame so only the receipt prints.
+      path: '/pagos/:paymentId/recibo',
+      name: 'payment-receipt',
+      component: () => import('@/modules/payments/ReceiptView.vue'),
+      props: true,
+      meta: { requiresAuth: true, title: 'Recibo' },
+    },
+    {
       path: '/',
       component: () => import('@/modules/shell/AppShell.vue'),
       meta: { requiresAuth: true },
@@ -72,6 +80,12 @@ export const router = createRouter({
           name: 'memberships',
           component: () => import('@/modules/memberships/MembershipsView.vue'),
           meta: { title: 'Mensualidades' },
+        },
+        {
+          path: 'pagos',
+          name: 'payments',
+          component: () => import('@/modules/payments/PaymentsView.vue'),
+          meta: { title: 'Pagos' },
         },
         {
           path: 'tarifas',

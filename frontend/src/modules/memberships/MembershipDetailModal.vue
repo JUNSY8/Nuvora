@@ -16,7 +16,9 @@ import {
   suspendMembership,
 } from '@/modules/memberships/api'
 import { billingPeriod, coverageHint, describePrice, membershipStatus, periodOrigin, periodStatus } from '@/modules/memberships/labels'
-import type { Membership, MembershipPlan } from '@/modules/memberships/types'
+import type { Membership, MembershipPeriod, MembershipPlan } from '@/modules/memberships/types'
+import CollectPaymentModal from '@/modules/payments/CollectPaymentModal.vue'
+import type { PayableSummary, Payment } from '@/modules/payments/types'
 import PlateChip from '@/modules/vehicles/PlateChip.vue'
 import { plateCountries, vehicleType, vehicleTypeOrder } from '@/modules/vehicles/labels'
 import type { VehicleType } from '@/modules/vehicles/types'
@@ -46,8 +48,38 @@ const errors = useFieldErrors()
 const vehicle = ref<{ plate: string; country: string; vehicle_type: VehicleType }>({ plate: '', country: 'CO', vehicle_type: 'car' })
 const vehicleErrors = useFieldErrors()
 const removing = ref<string | null>(null)
+const collecting = ref<PayableSummary | null>(null)
 // One key per renewal attempt; retries of that attempt reuse it.
 let renewKey = newIdempotencyKey()
+
+function collect(period: MembershipPeriod): void {
+  const current = membership.value
+
+  if (!current) {
+    return
+  }
+
+  collecting.value = {
+    type: 'membership_period',
+    id: period.id,
+    title: `${current.code} · ${current.plan.name} · periodo ${period.sequence}`,
+    subtitle: `${current.customer?.name ?? 'Cliente'} · ${formatDate(period.starts_on)} a ${formatDate(period.ends_on)}`,
+    currency: period.currency,
+    balance: period.balance,
+  }
+}
+
+async function onPaid(payment: Payment): Promise<void> {
+  collecting.value = null
+  const id = membership.value?.id
+
+  if (!id) {
+    return
+  }
+
+  membership.value = await getMembership(id)
+  emit('changed', membership.value, `Pago ${payment.number} registrado: ${formatMoney(payment.amount, payment.currency)}.`)
+}
 
 const manage = computed(() => can('memberships.manage') && membership.value !== null && membership.value.status !== 'cancelled')
 const hint = computed(() => (membership.value ? coverageHint(membership.value, props.today) : null))
@@ -287,6 +319,7 @@ watch(() => props.membershipId, (id) => {
                   <th scope="col">Origen</th>
                   <th scope="col" class="text-right">Valor</th>
                   <th scope="col">Cobro</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -296,12 +329,29 @@ watch(() => props.membershipId, (id) => {
                   <td class="whitespace-nowrap">{{ formatDate(period.ends_on) }}</td>
                   <td>{{ periodOrigin[period.origin] ?? period.origin }}</td>
                   <td class="text-right whitespace-nowrap tabular-nums">{{ formatMoney(period.amount, period.currency) }}</td>
-                  <td><StatusBadge :label="periodStatus[period.status]?.label ?? period.status" :tone="periodStatus[period.status]?.tone ?? 'muted'" /></td>
+                  <td>
+                    <StatusBadge :label="periodStatus[period.status]?.label ?? period.status" :tone="periodStatus[period.status]?.tone ?? 'muted'" />
+                    <p v-if="period.paid > 0 && period.balance > 0" class="mt-0.5 text-xs text-vz-muted">Abonado {{ formatMoney(period.paid, period.currency) }}</p>
+                  </td>
+                  <td class="text-right">
+                    <button
+                      v-if="can('payments.create') && period.balance > 0"
+                      class="vz-btn vz-btn-sm vz-btn-soft-success"
+                      type="button"
+                      :aria-label="`Cobrar el periodo ${period.sequence}`"
+                      @click="collect(period)"
+                    >
+                      <i class="ri-money-dollar-circle-line" aria-hidden="true" /> Cobrar
+                    </button>
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <p class="mt-2 text-xs text-vz-muted">El recaudo de los periodos llega con la versión de pagos; por ahora quedan por cobrar.</p>
+          <p class="mt-2 text-xs text-vz-muted">
+            <template v-if="(membership.outstanding ?? 0) > 0">Saldo por cobrar: <strong class="text-vz-warning-text">{{ formatMoney(membership.outstanding ?? 0, membership.currency) }}</strong>. La cobertura no depende del pago; los días de gracia son el margen para cobrar.</template>
+            <template v-else>Sin saldo pendiente.</template>
+          </p>
         </section>
 
         <p v-if="membership.notes" class="text-vz-muted"><i class="ri-sticky-note-line" aria-hidden="true" /> {{ membership.notes }}</p>
@@ -374,4 +424,6 @@ watch(() => props.membershipId, (id) => {
       </template>
     </div>
   </BaseModal>
+
+  <CollectPaymentModal :payable="collecting" @close="collecting = null" @paid="onPaid" />
 </template>

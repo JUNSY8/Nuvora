@@ -19,6 +19,7 @@ export const navigation: NavSection[] = [
       { name: 'sessions', label: 'Historial', icon: 'ri-history-line', permission: 'sessions.view' },
       { name: 'reservations', label: 'Reservas', icon: 'ri-calendar-event-line', permission: 'reservations.view' },
       { name: 'memberships', label: 'Mensualidades', icon: 'ri-id-card-line', permission: 'memberships.view' },
+      { name: 'payments', label: 'Pagos', icon: 'ri-bank-card-line', permission: 'payments.view' },
       { name: 'tariffs', label: 'Tarifas', icon: 'ri-price-tag-3-line', permission: 'tariffs.view' },
       { name: 'parking-lots', label: 'Parqueaderos', icon: 'ri-parking-box-line', permission: 'parking.view' },
       { name: 'devices', label: 'Dispositivos', icon: 'ri-router-line', permission: 'devices.view' },
@@ -44,5 +45,5 @@ export const navigation: NavSection[] = [
 
 // Modules of the roadmap shown as upcoming so operators know what is coming.
 export const upcoming: NavItem[] = [
-  { name: 'payments', label: 'Pagos', icon: 'ri-bank-card-line' },
+  { name: 'billing', label: 'Facturación', icon: 'ri-file-list-3-line' },
 ]

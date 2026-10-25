@@ -122,6 +122,10 @@ export interface Quote {
   exit_local: string
   zone_id: string | null
   reason: string | null
+  // Only exit quotes carry a hold of their price.
+  priced_at?: string
+  quote_token?: string
+  quote_expires_at?: string
 }
 
 export interface SimulationInput {

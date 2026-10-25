@@ -47,6 +47,7 @@ export interface PlanInput {
 }
 
 export interface MembershipPeriod {
+  id: string
   sequence: number
   starts_on: string
   ends_on: string
@@ -54,6 +55,9 @@ export interface MembershipPeriod {
   currency: string
   status: string
   origin: string
+  // Collected so far and still owed, refunds subtracted.
+  paid: number
+  balance: number
 }
 
 // Dates are local days of the tenant (Y-m-d); the period end is inclusive.
@@ -79,6 +83,8 @@ export interface Membership {
   notes: string | null
   created_at: string | null
   periods?: MembershipPeriod[]
+  // What all its periods still owe; only in the detail.
+  outstanding?: number
 }
 
 export interface MembershipVehicleInput {

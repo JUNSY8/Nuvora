@@ -67,7 +67,9 @@ const chargeHint = computed(() => {
     value && value.covered_today > 0 ? `${value.covered_today} por mensualidad` : '',
   ].filter(Boolean)
 
-  return parts.length > 0 ? `Salidas: ${parts.join(' · ')}` : 'Calculado en las salidas'
+  const owing = value && value.unpaid_today > 0 ? `${value.unpaid_today} por cobrar` : ''
+
+  return [`Cobrado ${value ? formatMoney(value.charged_today, value.currency) : '—'}`, owing, ...parts].filter(Boolean).join(' · ')
 })
 const usableGates = (direction: 'entry' | 'exit') => gates.value.filter((gate) => gate.status === 'active' && (gate.direction === direction || gate.direction === 'bidirectional'))
 const entryGates = computed(() => usableGates('entry'))
@@ -212,7 +214,12 @@ function onEntered(result: SessionResult): void {
 function onExited(result: SessionResult): void {
   exiting.value = null
   const charge = result.session.charge
-  const amount = charge?.status === 'priced'
+  const paid = result.payment
+  const amount = paid
+    ? `Recibo ${paid.number}: ${formatMoney(paid.amount, paid.currency)}${paid.change_amount ? `, vueltas ${formatMoney(paid.change_amount, paid.currency)}` : ''}.`
+    : charge?.status === 'priced' && (result.session.payment?.balance ?? 0) > 0
+    ? `Valor: ${formatMoney(charge.total, charge.currency ?? 'COP')}, queda por cobrar.`
+    : charge?.status === 'priced'
     ? `Valor: ${formatMoney(charge.total, charge.currency ?? 'COP')}.`
     : charge?.status === 'covered'
       ? `Cubierta por la mensualidad ${charge.membership?.code ?? ''}: sin cobro.`
@@ -328,8 +335,8 @@ onMounted(load)
           :hint="summary?.average_stay_minutes_today != null ? `Estancia promedio: ${formatDuration(summary.average_stay_minutes_today)}` : 'Sin salidas hoy'"
         />
         <StatCard
-          label="Valor cobrado hoy"
-          :value="summary ? formatMoney(summary.charged_today, summary.currency) : '—'"
+          label="Recaudado hoy"
+          :value="summary ? formatMoney(summary.collected_today, summary.currency) : '—'"
           icon="ri-money-dollar-circle-line"
           tone="success"
           :loading="!summary"
