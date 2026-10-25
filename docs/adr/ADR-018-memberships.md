@@ -80,6 +80,8 @@ Los cupos de un plan se cuentan bajo bloqueo del plan al vender. Un espacio asig
 
 La zona se verifica al conocer el espacio. Una llegada no cubierta **no se bloquea**: el vehículo entra como visitante y paga la tarifa, y la entrada devuelve `notices` con el motivo para el operador. Un miembro cubierto ocupa su espacio asignado si está libre, o uno de las zonas del plan. La sesión queda con `membership_id` y a nombre del titular de la mensualidad.
 
+**Actualizado en 0.10 (ADR-020):** una llegada cubierta además necesita pagado el periodo de ese día una vez pasan los días de gracia, contados desde su primer día. Sin pago, entra como visitante con el aviso `MEMBERSHIP_UNPAID`.
+
 ## Cobro de una estancia cubierta
 
 La salida de una estancia cubierta igual se calcula con la tarifa, para registrar lo que la mensualidad pagó, pero cierra con `charge_status = covered`:

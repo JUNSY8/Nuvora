@@ -1,11 +1,11 @@
 openapi: 3.0.3
 info:
   title: Nuvora API
-  version: 0.9.0
+  version: 0.10.0
   description: |
     Contrato de salud, identidad, empresas (tenancy), auditoría, infraestructura de
     parqueaderos, registro de dispositivos, clientes, vehículos, sesiones de parqueo,
-    tarifas, descuentos, reservas, mensualidades y pagos.
+    tarifas, descuentos, reservas, mensualidades, pagos y pasarelas en línea.
 
     El dinero viaja como entero en la unidad menor de la moneda (ISO 4217): 5.000 COP es
     500000. Los pesos colombianos se cobran enteros, así que sus montos son múltiplos de 100.
@@ -1521,13 +1521,137 @@ paths:
               properties:
                 amount: { type: integer, minimum: 1, nullable: true, description: "Por defecto lo que queda del pago" }
                 reason: { type: string, minLength: 3, maxLength: 255 }
+                channel: { type: string, enum: [provider, manual], nullable: true, description: "Pagos en línea: por la pasarela (solo el pago completo) o a mano fuera de ella" }
+                manual_method: { type: string, enum: [cash, transfer, other], nullable: true, description: "Con channel manual; el efectivo sale de la caja de quien reembolsa" }
       responses:
         "201": { description: "`data.payment` con el reembolso; el cobro vuelve a tener saldo" }
         "200": { description: "Reintento con la misma Idempotency-Key" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { description: "PAYMENT_NOT_REFUNDABLE o IDEMPOTENCY_KEY_REUSED" }
-        "422": { description: "REFUND_EXCEEDS_PAYMENT, INVALID_AMOUNT o motivo faltante" }
+        "422": { description: "REFUND_EXCEEDS_PAYMENT, PARTIAL_REFUND_UNSUPPORTED, INVALID_AMOUNT o motivo faltante" }
+        "502": { description: "La pasarela rechazó el reembolso (REFUND_FAILED); el valor vuelve al pago" }
+        "503": { description: "La pasarela no respondió (PROVIDER_UNAVAILABLE)" }
+  /api/v1/payments/checkouts:
+    post:
+      tags: [Pagos]
+      summary: Crear un enlace de pago en línea para un cobro (payments.create)
+      description: |
+        Crea un pago pendiente sin número de recibo y devuelve `checkout_url`, la página pública que
+        lleva al checkout alojado de la pasarela. Solo hay un enlace pendiente por cobro. Ver ADR-020.
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payable_type, payable_id, account_id]
+              properties:
+                payable_type: { $ref: "#/components/schemas/PayableType" }
+                payable_id: { $ref: "#/components/schemas/Ulid" }
+                account_id: { $ref: "#/components/schemas/Ulid" }
+                amount: { type: integer, minimum: 1, nullable: true, description: "Por defecto el saldo" }
+      responses:
+        "201": { description: "`data.payment` pendiente con `checkout_url` y `expires_at`" }
+        "200": { description: "Reintento con la misma Idempotency-Key" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: "PAYMENT_PENDING, NOTHING_DUE, ALREADY_PAID o IDEMPOTENCY_KEY_REUSED" }
+        "422": { description: "PROVIDER_INACTIVE, AMOUNT_EXCEEDS_BALANCE o INVALID_AMOUNT" }
+  /api/v1/payments/{payment}/cancel:
+    parameters: [{ name: payment, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Pagos]
+      summary: Anular un enlace pendiente; consulta antes a la pasarela (payments.create)
+      responses:
+        "200": { description: "`data.payment` fallido con `failure_reason`" }
+        "409": { description: "PAYMENT_NOT_PENDING o ALREADY_PAID (la pasarela ya lo aprobó)" }
+  /api/v1/payments/{payment}/sync:
+    parameters: [{ name: payment, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Pagos]
+      summary: Consultar ahora a la pasarela el estado de un pago pendiente (payments.view)
+      responses:
+        "200": { description: "`data.payment` con el estado actual" }
+  /api/v1/payment-providers:
+    get:
+      tags: [Pagos]
+      summary: Cuentas de pasarela de la empresa (payments.configure)
+      responses:
+        "200": { description: "`data.items` (`ProviderAccount`) y `data.providers` (key, label, credential_keys, partial_refunds)" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Pagos]
+      summary: Conectar una cuenta de pasarela (payments.configure)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ProviderAccountInput" } } }
+      responses:
+        "201": { description: "`data.account`" }
+        "422": { description: "Validación; `credentials.<clave>` obligatorio" }
+  /api/v1/payment-providers/options:
+    get:
+      tags: [Pagos]
+      summary: Cuentas activas para enviar enlaces, sin configuración (payments.create)
+      responses:
+        "200": { description: "`data.items` (id, name, provider, provider_label, sandbox)" }
+  /api/v1/payment-providers/{account}:
+    parameters: [{ name: account, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    patch:
+      tags: [Pagos]
+      summary: Editar una cuenta; una credencial vacía conserva la guardada (payments.configure)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ProviderAccountInput" } } }
+      responses:
+        "200": { description: "`data.account`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "PROVIDER_IMMUTABLE o validación" }
+  /api/v1/payment-providers/{account}/reconcile:
+    parameters: [{ name: account, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Pagos]
+      summary: Verificar los pagos en línea de la cuenta con la pasarela (payments.reconcile)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from_date, to_date]
+              properties:
+                from_date: { type: string, format: date, description: "Día local de la empresa" }
+                to_date: { type: string, format: date }
+      responses:
+        "200": { description: "`data.reconciliation`: checked, fixed, issues, truncated e items (issue: not_found, status_mismatch, amount_mismatch, overpaid, unreachable)" }
+  /api/v1/public/checkouts/{token}:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string, minLength: 48, maxLength: 48 } }
+      - { name: volver, in: query, description: "Al volver de la pasarela consulta el resultado (como mucho cada 15 s)", schema: { type: boolean } }
+    get:
+      tags: [Pagos]
+      summary: Página pública de un enlace de pago; sin sesión, el token es el acceso
+      security: []
+      responses:
+        "200": { description: "`data.checkout`: tenant, description, amount, currency, status (o expired), number, provider, expires_at y checkout (url, method GET|POST, fields) mientras se pueda pagar" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/webhooks/payments/{provider}/{account}:
+    parameters:
+      - { name: provider, in: path, required: true, schema: { type: string, enum: [wompi, payu] } }
+      - { name: account, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    post:
+      tags: [Pagos]
+      summary: Notificaciones de la pasarela (sin sesión ni CSRF; verificadas por firma)
+      description: |
+        Wompi envía el evento JSON con `signature.checksum`; PayU, su confirmación como formulario
+        con `sign`. Cada notificación se aplica una sola vez. Ver ADR-020.
+      security: []
+      responses:
+        "200": { description: "Registrada (también duplicadas y referencias desconocidas)" }
+        "401": { description: "Firma inválida" }
+        "404": { description: "Cuenta desconocida" }
+        "500": { description: "No se pudo aplicar; la pasarela reintenta" }
   /api/v1/payment-reconciliations:
     get:
       tags: [Pagos]
@@ -1957,7 +2081,7 @@ components:
       type: object
       description: Lo que debe un cobro. not_required cuando no tiene valor (gracia, mensualidad, sin tarifa).
       properties:
-        status: { type: string, enum: [not_required, pending, partial, paid] }
+        status: { type: string, enum: [not_required, pending, partial, paid, overpaid], description: "overpaid: una aprobación tardía pagó de más; reembolsa la diferencia" }
         due: { type: integer }
         paid: { type: integer }
         balance: { type: integer }
@@ -1965,7 +2089,7 @@ components:
       type: object
       properties:
         id: { $ref: "#/components/schemas/Ulid" }
-        number: { type: string, example: RC-000001 }
+        number: { type: string, nullable: true, example: RC-000001, description: "Los pagos en línea lo reciben al aprobarse" }
         status: { $ref: "#/components/schemas/PaymentStatus" }
         payable: { type: object, properties: { type: { $ref: "#/components/schemas/PayableType" }, id: { type: string } } }
         parking_lot: { type: object, nullable: true }
@@ -1985,9 +2109,39 @@ components:
         received_at: { type: string, format: date-time }
         received_by: { type: object, nullable: true }
         reconciled: { type: boolean }
+        provider_account: { type: object, nullable: true, properties: { id: { type: string }, name: { type: string } } }
+        provider_reference: { type: string, nullable: true, description: "Transacción en la pasarela" }
+        provider_method: { type: string, nullable: true, example: PSE }
+        failure_reason: { type: string, nullable: true }
+        expires_at: { type: string, format: date-time, nullable: true, description: "Vencimiento del enlace" }
+        checkout_url: { type: string, nullable: true, description: "Solo en el detalle de un enlace pendiente" }
+        requested_by: { type: object, nullable: true, description: "Quién creó el enlace" }
         details: { type: object, description: "Solo en el detalle: copia de la estancia o el periodo para el recibo" }
         refunds: { type: array, description: "Solo en el detalle", items: { type: object } }
         reconciliation: { type: object, nullable: true, description: "Solo en el detalle" }
+    ProviderAccountInput:
+      type: object
+      required: [provider, name, environment, status, credentials]
+      properties:
+        provider: { type: string, enum: [wompi, payu] }
+        name: { type: string, maxLength: 80 }
+        environment: { type: string, enum: [sandbox, production] }
+        status: { type: string, enum: [active, inactive] }
+        credentials:
+          type: object
+          additionalProperties: { type: string, nullable: true }
+          description: "Wompi: public_key, private_key, events_secret, integrity_secret. PayU: merchant_id, account_id, api_key, api_login"
+    ProviderAccount:
+      type: object
+      properties:
+        id: { $ref: "#/components/schemas/Ulid" }
+        provider: { type: string, enum: [wompi, payu] }
+        name: { type: string }
+        environment: { type: string, enum: [sandbox, production] }
+        status: { type: string, enum: [active, inactive] }
+        credentials: { type: object, additionalProperties: { type: string }, description: "Solo los últimos cuatro caracteres" }
+        notification_url: { type: string, description: "URL a registrar en la pasarela" }
+        updated_at: { type: string, format: date-time, nullable: true }
     MethodTotals:
       type: object
       properties: { count: { type: integer }, collected: { type: integer }, refunded: { type: integer }, net: { type: integer } }

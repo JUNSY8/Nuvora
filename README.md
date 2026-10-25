@@ -3723,6 +3723,8 @@ Collecting periods, proration and refunds arrive with payments (0.9); barrier ac
 
 Review during 0.9: periods are collected from the membership detail and move from `due` to `paid` (and back to `due` if a refund leaves a balance); the detail shows what is still owed. Coverage still does not depend on payment: an unpaid membership with automatic renewal keeps covering until someone suspends it. Whether coverage should end when a period stays unpaid past the grace days is a business decision left open.
 
+Review during 0.10: decided and changed. A covered arrival needs the period of that day paid in full once its grace days, counted from the period's first day, are over; otherwise the member parks as a visitor with the `MEMBERSHIP_UNPAID` notice. Before this, an unpaid membership with automatic renewal covered for free indefinitely.
+
 ---
 
 
@@ -3774,6 +3776,8 @@ collection from the session history and the membership detail
 
 Online providers, webhooks and statement reconciliation arrive with 0.10; taxes and electronic invoicing with 0.11. See ADR-019.
 
+Review during 0.10: online payments are pending until the provider approves them, so the receipt number is now given on approval (pending and failed links have none). Cash closings now take offline payments and completed offline refunds only; before, nothing filtered by provider, which would have put online money in a cashier's drawer. Refunds gain a status (`pending`, `completed`, `failed`) and the provider that processes them.
+
 ---
 
 
@@ -3796,6 +3800,32 @@ Payment reconciliation
 ```
 
 Each provider must remain isolated behind adapters.
+
+Status:
+
+Implemented in the codebase:
+
+```text
+Provider accounts per tenant (Wompi, PayU; sandbox or production), credentials encrypted and write-only
+OnlinePaymentProvider port; Wompi and PayU adapters own every code, signature and URL of their provider
+Payment links: pending payment, random token (hashed + encrypted), public page, hosted checkout
+Card, PSE, Nequi... chosen by the customer at the provider; Nuvora never sees card data
+One pending link per payable; receipt number given on approval; links expire (NUVORA_PAYMENT_LINK_MINUTES)
+Webhooks without session or CSRF, verified with the account's secret, scoped to the account's tenant
+Each notification recorded once (payment_provider_events); duplicates and retries applied once
+ApplyProviderResult: the single place an online payment changes status (webhook, sync, reconciliation)
+Amount and currency checked on approval; late approvals count; voids become refunds; overpaid flagged
+payments:sync every five minutes with backoff; expired links given up; pending refunds followed up
+Provider refunds (reserved, then requested outside the transaction; rejected ones give the amount back)
+Manual refunds of online payments (cash or transfer outside the provider)
+Reconciliation against the provider: safe fixes applied, the rest reported
+Online money and provider refunds excluded from cash closings
+payments.configure (owner, administrator), backfilled to existing system roles
+Pasarelas tab (accounts, webhook URL, reconciliation), link mode in the collect dialog,
+online details and actions in the payment detail, public payment page /pagar/{token}
+```
+
+Charging cards directly (tokenization), recurring automatic charges and sending links by e-mail, SMS or WhatsApp arrive later (0.17 for notifications). See ADR-020.
 
 ---
 

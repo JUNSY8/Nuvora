@@ -120,7 +120,7 @@ La conciliación contra extractos de pasarelas llega con 0.10.
 
 ## Mensualidades
 
-Los periodos se cobran desde el detalle de la mensualidad y el detalle muestra el saldo pendiente. La cobertura no depende del pago: la mensualidad cubre sus días y los días de gracia son el margen para cobrar. Suspender por falta de pago sigue siendo una decisión del operador.
+Los periodos se cobran desde el detalle de la mensualidad y el detalle muestra el saldo pendiente. Los días de gracia son el margen para cobrar. **Desde 0.10** la cobertura sí depende del pago: pasado ese margen, un periodo sin pagar deja de cubrir (ADR-020).
 
 ## Permisos
 
@@ -139,7 +139,7 @@ Una migración concede los permisos a los roles de sistema existentes.
 
 ## Pendiente
 
-- Pasarelas en línea, webhooks, conciliación con extractos y reembolsos asíncronos (0.10).
+- Pasarelas en línea, webhooks, conciliación con la pasarela y reembolsos asíncronos: hechos en 0.10 (ADR-020).
 - Factura electrónica e impuestos (0.11).
 - Cobro anticipado y penalidades de reservas (0.14).
 - Prorrateo de mensualidades al cambiar de plan.
