@@ -64,6 +64,21 @@ trait InteractsWithMemberships
         ]);
     }
 
+    /**
+     * Pays every due period of a membership by transfer, so its coverage
+     * does not lapse for lack of payment.
+     */
+    protected function payPeriods(User $actor, string $membershipId): void
+    {
+        foreach (DB::table('membership_periods')->where('membership_id', $membershipId)->where('status', 'due')->pluck('id') as $periodId) {
+            $this->actingAs($actor)->postJson('/api/v1/payments', [
+                'payable_type' => 'membership_period',
+                'payable_id' => $periodId,
+                'method' => 'transfer',
+            ])->assertCreated();
+        }
+    }
+
     protected function membershipStatus(string $membershipId): string
     {
         return (string) DB::table('memberships')->where('id', $membershipId)->value('status');

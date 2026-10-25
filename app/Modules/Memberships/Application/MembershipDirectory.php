@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Modules\Memberships\Application;
 
 use App\Modules\Memberships\Domain\AccessDecision;
+use App\Modules\Memberships\Domain\AccessRules;
 use App\Modules\Memberships\Domain\MembershipStatus;
 use App\Modules\Memberships\Infrastructure\Persistence\Membership;
+use App\Modules\Memberships\Infrastructure\Persistence\MembershipPeriod;
 use App\Modules\Memberships\Infrastructure\Persistence\MembershipVehicle;
 use App\Modules\Vehicles\Domain\VehicleType;
 use DateTimeImmutable;
@@ -48,6 +50,25 @@ final class MembershipDirectory
         }
 
         $rules = MembershipPlans::rules($membership->plan);
+        $decision = $rules->evaluate(
+            $membership->status,
+            $membership->current_period_start,
+            MembershipCalendar::coveredUntil($membership),
+            $lotId,
+            $vehicleType,
+            $arrival,
+        );
+        // The period of the arrival day; during the grace after the last period, the last one.
+        $period = MembershipPeriod::query()
+            ->where('membership_id', $membership->id)
+            ->whereDate('starts_on', '<=', $arrival->format('Y-m-d'))
+            ->where('status', '!=', 'void')
+            ->orderByDesc('starts_on')
+            ->first();
+
+        if ($period !== null) {
+            $decision = AccessRules::requirePayment($decision, $period->status, $period->starts_on, $period->ends_on, $membership->grace_days, $arrival);
+        }
 
         return [
             'membership' => [
@@ -59,14 +80,7 @@ final class MembershipDirectory
                 'assigned_space_id' => $membership->assigned_space_id === null ? null : (string) $membership->assigned_space_id,
                 'zone_ids' => $rules->zoneIds,
             ],
-            'decision' => $rules->evaluate(
-                $membership->status,
-                $membership->current_period_start,
-                MembershipCalendar::coveredUntil($membership),
-                $lotId,
-                $vehicleType,
-                $arrival,
-            ),
+            'decision' => $decision,
         ];
     }
 

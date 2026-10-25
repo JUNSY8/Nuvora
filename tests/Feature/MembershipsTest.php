@@ -191,6 +191,7 @@ class MembershipsTest extends TestCase
         $this->createSpace($owner, $lot, 'A-02');
         $plan = $this->createPlan($owner);
         $membership = $this->sell($owner, $plan, $this->createCustomer($owner), ['SUS123'])->assertCreated()->json('data.membership.id');
+        $this->payPeriods($owner, $membership);
 
         $this->actingAs($owner)->postJson("/api/v1/memberships/{$membership}/suspend", ['reason' => ''])
             ->assertUnprocessable()->assertJsonValidationErrors(['reason'], 'error.details');

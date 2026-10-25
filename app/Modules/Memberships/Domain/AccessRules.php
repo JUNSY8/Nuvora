@@ -57,6 +57,26 @@ final class AccessRules
     }
 
     /**
+     * A covered arrival still needs its period paid once the grace days,
+     * counted from the period's first day, are over. The grace days are the
+     * margin to collect; after them an unpaid member parks as a visitor.
+     */
+    public static function requirePayment(AccessDecision $decision, ?string $periodStatus, DateTimeImmutable $periodStart, DateTimeImmutable $periodEnd, int $graceDays, DateTimeImmutable $arrivalLocal): AccessDecision
+    {
+        if (! $decision->covered || $periodStatus !== 'due') {
+            return $decision;
+        }
+
+        $deadline = $periodStart->modify("+{$graceDays} days")->format('Y-m-d');
+
+        if ($arrivalLocal->format('Y-m-d') <= $deadline) {
+            return $decision;
+        }
+
+        return AccessDecision::denied('MEMBERSHIP_UNPAID', "El periodo del {$periodStart->format('Y-m-d')} al {$periodEnd->format('Y-m-d')} no está pagado y venció el plazo de pago ({$deadline}).");
+    }
+
+    /**
      * A zone restriction is checked once the space is known.
      */
     public function allowsZone(?string $zoneId): bool
