@@ -6,11 +6,19 @@
   --radius-vz: 0.25rem;
 
   --color-vz-primary: #405189;
+  --color-vz-primary-hover: #36457a;
   --color-vz-secondary: #3577f1;
   --color-vz-success: #0ab39c;
   --color-vz-info: #299cdb;
   --color-vz-warning: #f7b84b;
   --color-vz-danger: #f06548;
+
+  --color-vz-primary-text: #6674a1;
+  --color-vz-secondary-text: #5d92f4;
+  --color-vz-success-text: #3bc2b0;
+  --color-vz-info-text: #54b0e2;
+  --color-vz-warning-text: #f9c66f;
+  --color-vz-danger-text: #f3846d;
 
   --color-vz-body: #1a1d21;
   --color-vz-text: #ced4da;
@@ -19,6 +27,7 @@
   --color-vz-card: #212529;
   --color-vz-elevated: #2a2d31;
   --color-vz-border: #32383e;
+  --color-vz-row-hover: #25282c;
 
   --color-vz-sidebar: #212529;
   --color-vz-sidebar-item: #7c7f90;
@@ -44,9 +53,116 @@ body {
   background: var(--color-vz-body);
   color: var(--color-vz-text);
   font-family: var(--font-sans);
+  font-size: 0.8125rem;
 }
 
 :focus-visible {
   outline: 2px solid var(--color-vz-primary);
   outline-offset: 2px;
+}
+
+@layer components {
+  .vz-card {
+    @apply rounded-vz border border-vz-border bg-vz-card shadow-[0_1px_2px_rgba(56,65,74,0.15)];
+  }
+
+  .vz-card-header {
+    @apply flex flex-wrap items-center justify-between gap-3 border-b border-vz-border px-5 py-4;
+  }
+
+  .vz-card-title {
+    @apply text-[15px] font-semibold text-vz-heading;
+  }
+
+  .vz-card-body {
+    @apply p-5;
+  }
+
+  .vz-btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-vz px-3.5 py-2 text-[13px] font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .vz-btn-sm {
+    @apply px-2.5 py-1.5 text-xs;
+  }
+
+  .vz-btn-icon {
+    @apply inline-flex size-9 items-center justify-center rounded-vz text-lg transition-colors;
+  }
+
+  .vz-btn-primary {
+    @apply bg-vz-primary text-white hover:bg-vz-primary-hover;
+  }
+
+  .vz-btn-success {
+    @apply bg-vz-success text-white hover:bg-[#099885];
+  }
+
+  .vz-btn-danger {
+    @apply bg-vz-danger text-white hover:bg-[#cc563d];
+  }
+
+  .vz-btn-light {
+    @apply bg-vz-elevated text-vz-text hover:bg-vz-dropdown-hover;
+  }
+
+  .vz-btn-soft-primary {
+    @apply bg-vz-primary/15 text-vz-primary-text hover:bg-vz-primary hover:text-white;
+  }
+
+  .vz-btn-soft-danger {
+    @apply bg-vz-danger/15 text-vz-danger-text hover:bg-vz-danger hover:text-white;
+  }
+
+  .vz-btn-soft-success {
+    @apply bg-vz-success/15 text-vz-success-text hover:bg-vz-success hover:text-white;
+  }
+
+  .vz-btn-soft-warning {
+    @apply bg-vz-warning/15 text-vz-warning-text hover:bg-vz-warning hover:text-[#1a1d21];
+  }
+
+  .vz-label {
+    @apply mb-1.5 block text-[13px] font-medium text-vz-text;
+  }
+
+  .vz-input {
+    @apply w-full rounded-vz border border-vz-input-border bg-vz-input px-3 py-2 text-[13px] text-vz-text outline-none placeholder:text-vz-muted focus:border-vz-primary focus:ring-1 focus:ring-vz-primary disabled:opacity-60 aria-invalid:border-vz-danger;
+  }
+
+  .vz-help {
+    @apply mt-1 text-xs text-vz-muted;
+  }
+
+  .vz-error {
+    @apply mt-1 text-xs text-vz-danger;
+  }
+
+  .vz-table {
+    @apply min-w-full text-left text-[13px];
+  }
+
+  .vz-table thead {
+    @apply bg-vz-elevated text-vz-heading;
+  }
+
+  .vz-table th {
+    @apply px-4 py-3 font-semibold whitespace-nowrap;
+  }
+
+  .vz-table td {
+    @apply border-t border-vz-border px-4 py-3 align-middle;
+  }
+
+  .vz-table tbody tr {
+    @apply hover:bg-vz-row-hover;
+  }
+
+  .vz-dropdown {
+    @apply absolute z-50 mt-2 min-w-48 rounded-vz border border-vz-border bg-vz-dropdown py-1.5 shadow-[0_5px_10px_rgba(30,32,37,0.12)];
+  }
+
+  .vz-dropdown-item {
+    @apply flex w-full items-center gap-2 px-4 py-2 text-left text-[13px] text-vz-dropdown-item hover:bg-vz-dropdown-hover hover:text-vz-topbar-item;
+  }
 }

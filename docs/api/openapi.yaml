@@ -1,28 +1,62 @@
 openapi: 3.0.3
 info:
   title: Nuvora API
-  version: 0.1.0
-  description: Contrato inicial de salud y autenticación.
+  version: 0.10.0
+  description: |
+    Contrato de salud, identidad, empresas (tenancy), auditoría, infraestructura de
+    parqueaderos, registro de dispositivos, clientes, vehículos, sesiones de parqueo,
+    tarifas, descuentos, reservas, mensualidades, pagos y pasarelas en línea.
+
+    El dinero viaja como entero en la unidad menor de la moneda (ISO 4217): 5.000 COP es
+    500000. Los pesos colombianos se cobran enteros, así que sus montos son múltiplos de 100.
+
+    Autenticación por sesión (cookie) con protección CSRF de Sanctum: el cliente pide
+    `GET /sanctum/csrf-cookie` antes de cualquier mutación. La empresa activa se resuelve
+    desde la membresía del usuario; `X-Tenant-Id` solo elige entre empresas ya concedidas
+    y un `tenant_id` en el cuerpo nunca otorga acceso. Un recurso de otra empresa responde
+    404, nunca 403.
+
+    Toda respuesta exitosa usa `{ success: true, data, request_id }` y todo error usa el
+    esquema `Error`. Los listados paginados devuelven `data.items` y `data.meta`.
 servers:
   - url: http://localhost:8080
+tags:
+  - name: Salud
+  - name: Identidad
+  - name: Empresas
+  - name: Auditoría
+  - name: Parqueaderos
+  - name: Dispositivos
+  - name: Clientes
+  - name: Vehículos
+  - name: Sesiones
+  - name: Tarifas
+  - name: Reservas
+  - name: Mensualidades
+  - name: Pagos
+  - name: Tiempo real
 paths:
   /health/live:
     get:
+      tags: [Salud]
       summary: Proceso de la aplicación en ejecución
+      security: []
       responses:
-        "200":
-          description: La aplicación responde
+        "200": { description: "La aplicación responde" }
   /health/ready:
     get:
+      tags: [Salud]
       summary: Dependencias necesarias para operar
+      security: []
       responses:
-        "200":
-          description: Base de datos, Redis, cola y almacenamiento responden
-        "503":
-          description: Alguna dependencia no responde
+        "200": { description: "Base de datos, Redis, cola y almacenamiento responden" }
+        "503": { description: "Alguna dependencia no responde" }
+
   /api/v1/auth/register:
     post:
+      tags: [Identidad]
       summary: Registrar un usuario y abrir sesión
+      security: []
       requestBody:
         required: true
         content:
@@ -33,41 +67,1693 @@ paths:
               properties:
                 name: { type: string }
                 email: { type: string, format: email }
-                password: { type: string, format: password }
+                password: { type: string, format: password, minLength: 12 }
                 password_confirmation: { type: string, format: password }
       responses:
-        "201":
-          description: Usuario creado
-        "422":
-          description: Datos inválidos
+        "201": { description: "Usuario creado" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "429": { $ref: "#/components/responses/TooManyAttempts" }
   /api/v1/auth/login:
     post:
+      tags: [Identidad]
       summary: Iniciar sesión
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+                remember: { type: boolean }
       responses:
-        "200":
-          description: Sesión iniciada
-        "401":
-          description: Credenciales inválidas
-        "429":
-          description: Demasiados intentos
+        "200": { description: "Sesión iniciada y perfil actual" }
+        "401": { description: "Credenciales inválidas (INVALID_CREDENTIALS)" }
+        "429": { $ref: "#/components/responses/TooManyAttempts" }
   /api/v1/auth/logout:
     post:
+      tags: [Identidad]
       summary: Cerrar la sesión actual
       responses:
-        "200":
-          description: Sesión cerrada
-        "401":
-          description: No autenticado
+        "200": { description: "Sesión cerrada" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
   /api/v1/auth/me:
     get:
-      summary: Usuario autenticado
+      tags: [Identidad]
+      summary: Usuario autenticado, empresas accesibles y empresa activa
+      responses:
+        "200": { description: "Perfil actual" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+  /api/v1/auth/forgot-password:
+    post:
+      tags: [Identidad]
+      summary: Enviar enlace de restablecimiento
+      description: Responde igual exista o no la cuenta.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "200": { description: "Mensaje genérico" }
+        "429": { $ref: "#/components/responses/TooManyAttempts" }
+  /api/v1/auth/reset-password:
+    post:
+      tags: [Identidad]
+      summary: Restablecer la contraseña con el token recibido
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, token, password, password_confirmation]
+              properties:
+                email: { type: string, format: email }
+                token: { type: string }
+                password: { type: string, format: password, minLength: 12 }
+                password_confirmation: { type: string, format: password }
+      responses:
+        "200": { description: "Contraseña actualizada" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/auth/email/verification-notification:
+    post:
+      tags: [Identidad]
+      summary: Reenviar el correo de verificación
+      responses:
+        "200": { description: "Enlace enviado" }
+        "429": { $ref: "#/components/responses/TooManyAttempts" }
+  /api/v1/auth/email/verify/{id}/{hash}:
+    get:
+      tags: [Identidad]
+      summary: Verificar el correo (enlace firmado)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: hash, in: path, required: true, schema: { type: string } }
+      responses:
+        "302": { description: "Redirige a la interfaz con `?verificado=1`" }
+        "403": { description: "Enlace inválido o vencido (INVALID_SIGNATURE)" }
+
+  /api/v1/tenants:
+    post:
+      tags: [Empresas]
+      summary: Crear una empresa; el usuario queda como propietario
+      description: Requiere correo verificado. Ignora cualquier `tenant_id` enviado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, timezone]
+              properties:
+                name: { type: string, maxLength: 120 }
+                timezone: { type: string, example: America/Bogota }
+      responses:
+        "201": { description: "Perfil con la nueva empresa activa" }
+        "403": { description: "Correo no verificado (EMAIL_NOT_VERIFIED)" }
+  /api/v1/tenant-context:
+    post:
+      tags: [Empresas]
+      summary: Elegir la empresa activa entre las membresías del usuario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id]
+              properties:
+                tenant_id: { $ref: "#/components/schemas/Ulid" }
+      responses:
+        "200": { description: "Perfil con la empresa activa" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/tenant:
+    get:
+      tags: [Empresas]
+      summary: Empresa activa
+      responses:
+        "200": { description: "Datos de la empresa" }
+        "409": { $ref: "#/components/responses/TenantRequired" }
+    patch:
+      tags: [Empresas]
+      summary: Actualizar la empresa activa (tenants.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, timezone]
+              properties:
+                name: { type: string, maxLength: 120 }
+                timezone: { type: string }
+      responses:
+        "200": { description: "Empresa y perfil actualizados" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/tenant/members:
+    get:
+      tags: [Empresas]
+      summary: Miembros de la empresa (users.view)
+      responses:
+        "200": { description: "`data.members`" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Empresas]
+      summary: Agregar un usuario existente como miembro (users.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, roles]
+              properties:
+                email: { type: string, format: email }
+                roles: { type: array, items: { type: string }, minItems: 1 }
+      responses:
+        "201": { description: "Miembro agregado" }
+        "422": { description: "Datos inválidos o regla de membresía (MEMBERSHIP_RULE)" }
+  /api/v1/tenant/members/{membership}:
+    patch:
+      tags: [Empresas]
+      summary: Activar o suspender una membresía (users.manage)
+      parameters: [{ $ref: "#/components/parameters/Membership" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [active, suspended] }
+      responses:
+        "200": { description: "Membresía actualizada" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "Regla de membresía (MEMBERSHIP_RULE)" }
+  /api/v1/tenant/members/{membership}/roles:
+    put:
+      tags: [Empresas]
+      summary: Reemplazar los roles de una membresía (roles.manage)
+      parameters: [{ $ref: "#/components/parameters/Membership" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [roles]
+              properties:
+                roles: { type: array, items: { type: string }, minItems: 1 }
+      responses:
+        "200": { description: "Roles actualizados" }
+        "422": { description: "Regla de membresía, por ejemplo el último propietario (MEMBERSHIP_RULE)" }
+  /api/v1/tenant/roles:
+    get:
+      tags: [Empresas]
+      summary: Roles de sistema y personalizados (roles.view)
+      responses:
+        "200": { description: "`data.roles`" }
+    post:
+      tags: [Empresas]
+      summary: Crear un rol personalizado con permisos del catálogo (roles.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, permissions]
+              properties:
+                name: { type: string, maxLength: 80 }
+                permissions: { type: array, items: { type: string }, minItems: 1 }
+      responses:
+        "201": { description: "Rol creado" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /api/v1/tenant/audit:
+    get:
+      tags: [Auditoría]
+      summary: Eventos de auditoría de la empresa (audit.view)
+      parameters: [{ $ref: "#/components/parameters/Page" }]
+      responses:
+        "200": { description: "Página de eventos, 20 por página" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/parking-lots:
+    get:
+      tags: [Parqueaderos]
+      summary: Parqueaderos con su ocupación (parking.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: per_page, in: query, schema: { type: integer, default: 25, maximum: 100 } }
+        - { name: search, in: query, description: "Nombre, código o ciudad", schema: { type: string } }
       responses:
         "200":
-          description: Perfil actual
-        "401":
-          description: No autenticado
+          description: Página de parqueaderos
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items: { type: array, items: { $ref: "#/components/schemas/ParkingLot" } }
+                          meta: { $ref: "#/components/schemas/PageMeta" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Parqueaderos]
+      summary: Crear un parqueadero (parking.create)
+      description: El código se normaliza a mayúsculas y es único por empresa. El parqueadero arranca abierto 24 horas los siete días.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingLotInput" }
+      responses:
+        "201": { description: "`data.lot`, con `operating_hours`" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/parking-lots/{lot}:
+    parameters: [{ $ref: "#/components/parameters/Lot" }]
+    get:
+      tags: [Parqueaderos]
+      summary: Detalle con horario y ocupación (parking.view)
+      responses:
+        "200": { description: "`data.lot`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Parqueaderos]
+      summary: Actualizar datos y configuración (parking.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingLotInput" }
+      responses:
+        "200": { description: "`data.lot`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "Datos inválidos, o cambio de moneda con tarifas existentes (CURRENCY_IN_USE)" }
+    delete:
+      tags: [Parqueaderos]
+      summary: Eliminar un parqueadero vacío (parking.delete)
+      responses:
+        "200": { description: "Eliminado" }
+        "422": { description: "Tiene espacios, puertas o dispositivos (PARKING_LOT_NOT_EMPTY)" }
+  /api/v1/parking-lots/{lot}/operating-hours:
+    parameters: [{ $ref: "#/components/parameters/Lot" }]
+    put:
+      tags: [Parqueaderos]
+      summary: Reemplazar el horario semanal completo (parking.update)
+      description: Horas locales en la zona del parqueadero. Un cierre anterior a la apertura termina al día siguiente.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [days]
+              properties:
+                days:
+                  type: array
+                  minItems: 7
+                  maxItems: 7
+                  items: { $ref: "#/components/schemas/OperatingHour" }
+      responses:
+        "200": { description: "`data.operating_hours`" }
+        "422": { description: "Datos inválidos o regla de horario (PARKING_RULE)" }
+  /api/v1/parking-lots/{lot}/zones:
+    parameters: [{ $ref: "#/components/parameters/Lot" }]
+    get:
+      tags: [Parqueaderos]
+      summary: Zonas del parqueadero (parking.view)
+      responses:
+        "200": { description: "`data.zones`" }
+    post:
+      tags: [Parqueaderos]
+      summary: Crear una zona (parking.create)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingZoneInput" }
+      responses:
+        "201": { description: "`data.zone`" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/parking-lots/{lot}/zones/{zone}:
+    parameters:
+      - { $ref: "#/components/parameters/Lot" }
+      - { name: zone, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    patch:
+      tags: [Parqueaderos]
+      summary: Actualizar una zona (parking.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingZoneInput" }
+      responses:
+        "200": { description: "`data.zone`" }
+    delete:
+      tags: [Parqueaderos]
+      summary: Eliminar una zona sin espacios (parking.delete)
+      responses:
+        "200": { description: "Eliminada" }
+        "422": { description: "La zona tiene espacios (ZONE_HAS_SPACES) o tarifas (ZONE_IN_USE)" }
+  /api/v1/parking-lots/{lot}/spaces:
+    parameters: [{ $ref: "#/components/parameters/Lot" }]
+    get:
+      tags: [Parqueaderos]
+      summary: Espacios ordenados por código (parking.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: per_page, in: query, schema: { type: integer, default: 100, maximum: 500 } }
+        - { name: zone_id, in: query, description: "ULID de zona o `none` para espacios sin zona", schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/SpaceStatus" } }
+        - { name: type, in: query, schema: { $ref: "#/components/schemas/SpaceType" } }
+        - { name: search, in: query, description: "Fragmento del código", schema: { type: string } }
+      responses:
+        "200":
+          description: Página de espacios
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items: { type: array, items: { $ref: "#/components/schemas/ParkingSpace" } }
+                          meta: { $ref: "#/components/schemas/PageMeta" }
+    post:
+      tags: [Parqueaderos]
+      summary: Crear un espacio disponible (parking.create)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingSpaceInput" }
+      responses:
+        "201": { description: "`data.space`" }
+        "422": { description: "Código repetido o zona de otro parqueadero (VALIDATION_FAILED)" }
+  /api/v1/parking-lots/{lot}/spaces/bulk:
+    parameters: [{ $ref: "#/components/parameters/Lot" }]
+    post:
+      tags: [Parqueaderos]
+      summary: Crear una numeración de espacios, todo o nada (parking.create)
+      description: Hasta 500 espacios por operación, por ejemplo prefijo `A-`, del 1 al 40, 2 dígitos → A-01 … A-40.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/ParkingSpaceAttributes"
+                - type: object
+                  required: [from, to]
+                  properties:
+                    prefix: { type: string, maxLength: 20 }
+                    from: { type: integer, minimum: 0 }
+                    to: { type: integer, minimum: 0 }
+                    padding: { type: integer, minimum: 0, maximum: 6 }
+      responses:
+        "201": { description: "`data.created` con el número de espacios creados" }
+        "422": { description: "Códigos existentes (`details.prefix`) o rango inválido (PARKING_RULE)" }
+  /api/v1/parking-lots/{lot}/spaces/{space}:
+    parameters:
+      - { $ref: "#/components/parameters/Lot" }
+      - { $ref: "#/components/parameters/Space" }
+    patch:
+      tags: [Parqueaderos]
+      summary: Actualizar código, tipo, zona y opciones (parking.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingSpaceInput" }
+      responses:
+        "200": { description: "`data.space`" }
+    delete:
+      tags: [Parqueaderos]
+      summary: Retirar un espacio que no esté ocupado ni reservado (parking.delete)
+      responses:
+        "200": { description: "Retirado" }
+        "422": { description: "Espacio en uso (SPACE_IN_USE)" }
+  /api/v1/parking-lots/{lot}/spaces/{space}/status:
+    parameters:
+      - { $ref: "#/components/parameters/Lot" }
+      - { $ref: "#/components/parameters/Space" }
+    post:
+      tags: [Parqueaderos]
+      summary: Cambio administrativo de estado (parking.update)
+      description: |
+        Solo entre disponible, bloqueado, mantenimiento y fuera de servicio, según la máquina
+        de estados. Ocupado y reservado cambian con sesiones y reservas. Repetir el estado actual
+        no cambia nada ni genera auditoría. `manual_transitions` del espacio lista los destinos válidos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { $ref: "#/components/schemas/SpaceStatus" }
+                reason: { type: string, maxLength: 200, nullable: true }
+      responses:
+        "200": { description: "`data.space`" }
+        "422": { description: "Transición no permitida (SPACE_TRANSITION_NOT_ALLOWED)" }
+  /api/v1/parking-lots/{lot}/gates:
+    parameters: [{ $ref: "#/components/parameters/Lot" }]
+    get:
+      tags: [Parqueaderos]
+      summary: Puertas del parqueadero (parking.view)
+      responses:
+        "200": { description: "`data.gates`" }
+    post:
+      tags: [Parqueaderos]
+      summary: Crear una puerta (parking.create)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingGateInput" }
+      responses:
+        "201": { description: "`data.gate`" }
+  /api/v1/parking-lots/{lot}/gates/{gate}:
+    parameters:
+      - { $ref: "#/components/parameters/Lot" }
+      - { name: gate, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    patch:
+      tags: [Parqueaderos]
+      summary: Actualizar una puerta (parking.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ParkingGateInput" }
+      responses:
+        "200": { description: "`data.gate`" }
+    delete:
+      tags: [Parqueaderos]
+      summary: Eliminar una puerta sin dispositivos (parking.delete)
+      responses:
+        "200": { description: "Eliminada" }
+        "422": { description: "Tiene dispositivos o sesiones (GATE_IN_USE)" }
+
+  /api/v1/devices:
+    get:
+      tags: [Dispositivos]
+      summary: Dispositivos de la empresa (devices.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: per_page, in: query, schema: { type: integer, default: 25, maximum: 100 } }
+        - { name: parking_lot_id, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/DeviceStatus" } }
+        - { name: type, in: query, schema: { $ref: "#/components/schemas/DeviceType" } }
+        - { name: search, in: query, description: "Nombre, código o serial", schema: { type: string } }
+      responses:
+        "200": { description: "`data.items`, `data.meta` y `data.status_counts` (conteo por estado, filtrado solo por parqueadero)" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Dispositivos]
+      summary: Registrar un dispositivo (devices.manage)
+      description: Queda en `unknown` hasta que Nuvora Edge lo reporte. No acepta credenciales.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeviceInput" }
+      responses:
+        "201": { description: "`data.device`" }
+        "422": { description: "Código repetido en la empresa, parqueadero ajeno o puerta de otro parqueadero" }
+  /api/v1/devices/{device}:
+    parameters: [{ $ref: "#/components/parameters/Device" }]
+    patch:
+      tags: [Dispositivos]
+      summary: Actualizar un dispositivo (devices.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeviceInput" }
+      responses:
+        "200": { description: "`data.device`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Dispositivos]
+      summary: Retirar un dispositivo del registro (devices.manage)
+      responses:
+        "200": { description: "Retirado" }
+  /api/v1/devices/{device}/status:
+    parameters: [{ $ref: "#/components/parameters/Device" }]
+    post:
+      tags: [Dispositivos]
+      summary: Entrar o salir de mantenimiento (devices.manage)
+      description: Online, offline y degraded los reporta Nuvora Edge. Salir de mantenimiento vuelve a `unknown`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [maintenance, unknown] }
+      responses:
+        "200": { description: "`data.device`" }
+        "422": { description: "Transición no permitida (DEVICE_TRANSITION_NOT_ALLOWED)" }
+
+  /api/v1/customers:
+    get:
+      tags: [Clientes]
+      summary: Clientes de la empresa (customers.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: per_page, in: query, schema: { type: integer, default: 25, maximum: 100 } }
+        - { name: type, in: query, schema: { $ref: "#/components/schemas/CustomerType" } }
+        - { name: status, in: query, schema: { type: string, enum: [active, inactive] } }
+        - { name: business_id, in: query, description: "Personas vinculadas a esa empresa", schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: organizations, in: query, description: "Solo empresas y corporativos", schema: { type: boolean } }
+        - { name: search, in: query, description: "Nombre, correo, teléfono o documento (sin importar puntos ni guiones)", schema: { type: string } }
+      responses:
+        "200": { description: "`data.items`, `data.meta` y `data.type_counts`" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Clientes]
+      summary: Crear un cliente (customers.create)
+      description: La auditoría registra qué datos de contacto se dieron, no su valor.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomerInput" }
+      responses:
+        "201": { description: "`data.customer`" }
+        "422": { description: "Documento repetido en la empresa, documento incompleto (INVALID_DOCUMENT) o empresa no válida en `business_id`" }
+  /api/v1/customers/{customer}:
+    parameters: [{ $ref: "#/components/parameters/Customer" }]
+    get:
+      tags: [Clientes]
+      summary: Detalle de un cliente (customers.view)
+      responses:
+        "200": { description: "`data.customer`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Clientes]
+      summary: Actualizar un cliente (customers.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomerInput" }
+      responses:
+        "200": { description: "`data.customer`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "Validación, o empresa con personas vinculadas que pasa a persona (CUSTOMER_HAS_MEMBERS)" }
+  /api/v1/customers/{customer}/status:
+    parameters: [{ $ref: "#/components/parameters/Customer" }]
+    post:
+      tags: [Clientes]
+      summary: Activar o inactivar un cliente (customers.update)
+      description: Un cliente inactivo conserva sus vínculos, pero no puede vincularse a nuevos vehículos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [active, inactive] }
+      responses:
+        "200": { description: "`data.customer`" }
+
+  /api/v1/vehicles:
+    get:
+      tags: [Vehículos]
+      summary: Vehículos de la empresa (vehicles.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: per_page, in: query, schema: { type: integer, default: 25, maximum: 100 } }
+        - { name: status, in: query, schema: { type: string, enum: [active, inactive, blocked] } }
+        - { name: type, in: query, schema: { $ref: "#/components/schemas/VehicleType" } }
+        - { name: customer_id, in: query, description: "Vehículos con un vínculo activo con ese cliente", schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: search, in: query, description: "Placa (se normaliza, abc-1 busca ABC1), marca, línea o color", schema: { type: string } }
+      responses:
+        "200": { description: "`data.items`, `data.meta` y `data.status_counts`" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Vehículos]
+      summary: Registrar un vehículo (vehicles.create)
+      description: Puede vincular el primer cliente en la misma transacción con `customer_id` y `relationship` (por defecto owner).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VehicleInput" }
+      responses:
+        "201": { description: "`data.vehicle`" }
+        "422": { description: "Placa repetida para ese país, placa inválida (INVALID_PLATE), país inválido (INVALID_COUNTRY) o cliente inactivo o ajeno" }
+  /api/v1/vehicles/plate-check:
+    get:
+      tags: [Vehículos]
+      summary: Normalizar una placa y saber si ya existe (vehicles.view)
+      parameters:
+        - { name: plate, in: query, required: true, schema: { type: string, maxLength: 20 } }
+        - { name: country, in: query, required: true, schema: { type: string, minLength: 2, maxLength: 2 } }
+      responses:
+        "200":
+          description: Placa canónica, formato del país y vehículo existente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plate: { type: string, example: ABC123 }
+                  country: { type: string, example: CO }
+                  format: { type: object, nullable: true, properties: { key: { type: string }, label: { type: string } } }
+                  rules_available: { type: boolean, description: "El país tiene formatos conocidos" }
+                  suggested_type: { allOf: [{ $ref: "#/components/schemas/VehicleType" }], nullable: true }
+                  existing: { type: object, nullable: true, properties: { id: { $ref: "#/components/schemas/Ulid" }, plate: { type: string }, status: { type: string } } }
+        "422": { description: "Placa inválida (INVALID_PLATE)" }
+  /api/v1/vehicles/{vehicle}:
+    parameters: [{ $ref: "#/components/parameters/Vehicle" }]
+    get:
+      tags: [Vehículos]
+      summary: Detalle de un vehículo con sus clientes vinculados (vehicles.view)
+      responses:
+        "200": { description: "`data.vehicle`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Vehículos]
+      summary: Actualizar o corregir la placa de un vehículo (vehicles.update)
+      description: Los vínculos con clientes no se cambian aquí; `customer_id` se ignora.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VehicleInput" }
+      responses:
+        "200": { description: "`data.vehicle`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/vehicles/{vehicle}/status:
+    parameters: [{ $ref: "#/components/parameters/Vehicle" }]
+    post:
+      tags: [Vehículos]
+      summary: Activar, inactivar o bloquear un vehículo (vehicles.update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [active, inactive, blocked] }
+                reason: { type: string, maxLength: 255, nullable: true, description: "Obligatorio para blocked" }
+      responses:
+        "200": { description: "`data.vehicle`" }
+        "422": { description: "Bloqueo sin motivo" }
+  /api/v1/vehicles/{vehicle}/history:
+    parameters: [{ $ref: "#/components/parameters/Vehicle" }]
+    get:
+      tags: [Vehículos]
+      summary: Historial del vehículo, del más reciente al más antiguo (vehicles.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: per_page, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        "200": { description: "`data.items` (VehicleEvent) y `data.meta`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/vehicles/{vehicle}/customers:
+    parameters: [{ $ref: "#/components/parameters/Vehicle" }]
+    post:
+      tags: [Vehículos]
+      summary: Vincular un cliente, cambiar su relación o transferir la propiedad (vehicles.update)
+      description: |
+        Solo puede haber un propietario activo. Para reemplazarlo envía `transfer_ownership: true`;
+        el vínculo anterior se cierra y queda en el historial. Si el cliente ya está vinculado con
+        otra relación, se actualiza ese mismo vínculo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id, relationship]
+              properties:
+                customer_id: { $ref: "#/components/schemas/Ulid" }
+                relationship: { $ref: "#/components/schemas/VehicleRelationship" }
+                transfer_ownership: { type: boolean, default: false }
+      responses:
+        "201": { description: "`data.link`" }
+        "422": { description: "Ya tiene propietario (VEHICLE_HAS_OWNER), ya vinculado con esa relación (ALREADY_LINKED) o cliente inactivo o ajeno" }
+  /api/v1/vehicles/{vehicle}/customers/{link}:
+    parameters:
+      - { $ref: "#/components/parameters/Vehicle" }
+      - { name: link, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    delete:
+      tags: [Vehículos]
+      summary: Terminar un vínculo activo (vehicles.update)
+      description: El vínculo no se borra; se cierra con `ended_at`.
+      responses:
+        "200": { description: "Vínculo terminado" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/parking-sessions:
+    get:
+      tags: [Sesiones]
+      summary: Sesiones de la empresa, de la entrada más reciente a la más antigua (sessions.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: per_page, in: query, schema: { type: integer, default: 25, maximum: 100 } }
+        - { name: lot_id, in: query, description: "Obligatorio con from_date o to_date", schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/SessionStatus" } }
+        - { name: search, in: query, description: "Placa; se normaliza (his-1 busca HIS1)", schema: { type: string, maxLength: 20 } }
+        - { name: vehicle_id, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: from_date, in: query, description: "Día local del parqueadero (Y-m-d)", schema: { type: string, format: date } }
+        - { name: to_date, in: query, description: "Día local del parqueadero (Y-m-d), incluido", schema: { type: string, format: date } }
+      responses:
+        "200": { description: "`data.items` (ParkingSession) y `data.meta`" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/parking-sessions/summary:
+    get:
+      tags: [Sesiones]
+      summary: Resumen de operación de un parqueadero en su día local (sessions.view)
+      parameters:
+        - { name: lot_id, in: query, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+      responses:
+        "200":
+          description: "`data.occupancy`, `open`, `open_without_space`, `entries_today`, `exits_today`, `charged_today` (calculado en las salidas, unidad menor de `currency`), `collected_today` (recaudado hoy en el parqueadero menos reembolsos), `unpaid_today` (salidas de hoy con saldo), `unpriced_today`, `covered_today` (salidas cubiertas por mensualidad), `currency`, `cancelled_today`, `average_stay_minutes_today`, `oldest_open_entry_at`, `day_starts_at` y `version` (marcador de cambios)"
+        "422": { description: "Parqueadero inexistente o de otra empresa" }
+  /api/v1/parking-sessions/entries:
+    post:
+      tags: [Sesiones]
+      summary: Registrar una entrada manual (sessions.create)
+      description: |
+        Identifica el vehículo por placa canónica y país o registra un visitante con `vehicle_type`.
+        Con `space_id` ocupa ese espacio; sin él y con `auto_assign` (por defecto true) asigna el primer
+        espacio compatible; con `auto_assign: false` entra sin espacio. Todo ocurre en una transacción.
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lot_id, plate, country]
+              properties:
+                lot_id: { $ref: "#/components/schemas/Ulid" }
+                plate: { type: string, maxLength: 20, example: abc-123 }
+                country: { type: string, minLength: 2, maxLength: 2, example: CO }
+                vehicle_type: { allOf: [{ $ref: "#/components/schemas/VehicleType" }], nullable: true, description: "Obligatorio si la placa no está registrada; se ignora si ya existe" }
+                space_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+                auto_assign: { type: boolean, default: true }
+                gate_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Puerta activa de entrada o bidireccional" }
+                notes: { type: string, maxLength: 500, nullable: true }
+      responses:
+        "201": { description: "`data.session`, `data.replayed: false` y `data.notices` (`info` o `warning`: si una mensualidad cubre la estancia o por qué no)" }
+        "200": { description: "Reintento con la misma Idempotency-Key: `data.session` original y `data.replayed: true`" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: "Clave reutilizada para otra entrada (IDEMPOTENCY_KEY_REUSED) u otra operación ganó la carrera (ENTRY_CONFLICT)" }
+        "422": { description: "LOT_NOT_OPERATING, VEHICLE_BLOCKED, VEHICLE_ALREADY_INSIDE, NO_SPACE_AVAILABLE, SPACE_NOT_AVAILABLE, SPACE_NOT_FOUND, SPACE_INCOMPATIBLE, INVALID_PLATE o validación (lot_id, vehicle_type, gate_id, idempotency_key)" }
+  /api/v1/parking-sessions/{session}:
+    parameters: [{ $ref: "#/components/parameters/Session" }]
+    get:
+      tags: [Sesiones]
+      summary: Detalle de una sesión (sessions.view)
+      responses:
+        "200": { description: "`data.session`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/parking-sessions/{session}/exit:
+    parameters: [{ $ref: "#/components/parameters/Session" }]
+    post:
+      tags: [Sesiones]
+      summary: Registrar la salida, calcular el cobro y liberar el espacio (sessions.close)
+      description: |
+        Calcula el cobro con las tarifas vigentes cuando el vehículo entró y lo guarda en
+        `data.session.charge`. Sin tarifa aplicable la salida se registra con `charge.status`
+        `unpriced`; una estancia que entró cubierta por una mensualidad cierra `covered` con total 0 y
+        sin descuentos. Un reintento con la misma clave devuelve el cobro original sin recalcular.
+
+        Con `quote_token` vigente se cobra con el instante de la cotización. Con `payment` (requiere
+        payments.create) el pago se registra en la misma transacción: si el efectivo no alcanza, la
+        salida no se registra. Sin `payment` la estancia queda por cobrar. Ver ADR-019.
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                gate_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Puerta activa de salida o bidireccional" }
+                notes: { type: string, maxLength: 500, nullable: true }
+                discount_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Descuento manual del catálogo (sessions.discount)" }
+                quote_token: { type: string, nullable: true, description: "Token de la cotización; fija su precio unos minutos" }
+                payment:
+                  type: object
+                  nullable: true
+                  required: [method]
+                  properties:
+                    method: { $ref: "#/components/schemas/PaymentMethod" }
+                    tendered_amount: { type: integer, nullable: true, description: "Efectivo recibido; por defecto el valor exacto" }
+                    reference: { type: string, maxLength: 100, nullable: true }
+      responses:
+        "200": { description: "`data.session` cerrada con `duration_minutes` (minutos iniciados), `charge` (`SessionCharge`), `payment` (`PaymentBalance`) y `data.replayed`; `data.payment` trae el pago cobrado (número, valor, vueltas) o null; una reserva en curso queda cumplida" }
+        "403": { description: "Descuento sin sessions.discount o pago sin payments.create (FORBIDDEN)" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: "Clave reutilizada para otra sesión (IDEMPOTENCY_KEY_REUSED)" }
+        "422": { description: "La sesión ya terminó (SESSION_NOT_OPEN), puerta inválida, descuento no aplicable (DISCOUNT_NOT_APPLICABLE), cotización de otra salida (INVALID_QUOTE) o efectivo insuficiente (INSUFFICIENT_TENDER)" }
+  /api/v1/parking-sessions/{session}/quote:
+    parameters: [{ $ref: "#/components/parameters/Session" }]
+    get:
+      tags: [Sesiones]
+      summary: Valor de la estancia si saliera ahora, sin guardar nada (sessions.view)
+      parameters:
+        - { name: discount_id, in: query, description: "Descuento manual (requiere sessions.discount)", schema: { $ref: "#/components/schemas/Ulid" } }
+      responses:
+        "200": { description: "`data.quote`", content: { application/json: { schema: { type: object, properties: { quote: { $ref: "#/components/schemas/Quote" } } } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "SESSION_NOT_OPEN o DISCOUNT_NOT_APPLICABLE" }
+  /api/v1/parking-sessions/{session}/cancel:
+    parameters: [{ $ref: "#/components/parameters/Session" }]
+    post:
+      tags: [Sesiones]
+      summary: Anular una sesión registrada por error (sessions.cancel)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 5, maxLength: 255 }
+      responses:
+        "200": { description: "`data.session` anulada; el espacio queda disponible" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { description: "Sin motivo o la sesión ya terminó (SESSION_NOT_OPEN)" }
+  /api/v1/parking-sessions/{session}/space:
+    parameters: [{ $ref: "#/components/parameters/Session" }]
+    post:
+      tags: [Sesiones]
+      summary: Asignar o cambiar el espacio de una sesión abierta (sessions.create)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [space_id]
+              properties:
+                space_id: { $ref: "#/components/schemas/Ulid" }
+      responses:
+        "200": { description: "`data.session`; el espacio anterior queda disponible" }
+        "409": { description: "Otra sesión tomó el espacio (ENTRY_CONFLICT)" }
+        "422": { description: "SESSION_NOT_OPEN, SPACE_NOT_AVAILABLE, SPACE_NOT_FOUND o SPACE_INCOMPATIBLE" }
+  /api/v1/tariffs:
+    get:
+      tags: [Tarifas]
+      summary: Tarifas de un parqueadero con su versión vigente (tariffs.view)
+      parameters:
+        - { name: lot_id, in: query, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+      responses:
+        "200": { description: "`data.items` con la versión vigente de cada tarifa" }
+        "422": { description: "Parqueadero inexistente o de otra empresa" }
+    post:
+      tags: [Tarifas]
+      summary: Crear una tarifa activa con su versión 1 (tariffs.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - type: object
+                  required: [parking_lot_id]
+                  properties: { parking_lot_id: { $ref: "#/components/schemas/Ulid" } }
+                - $ref: "#/components/schemas/TariffInput"
+      responses:
+        "201": { description: "`data.tariff` en la moneda del parqueadero" }
+        "422": { description: "Datos inválidos, código repetido en el parqueadero o reglas inconsistentes (INVALID_RATES, INVALID_WINDOW, INVALID_CODE)" }
+  /api/v1/tariffs/{tariff}:
+    parameters: [{ $ref: "#/components/parameters/Tariff" }]
+    patch:
+      tags: [Tarifas]
+      summary: Publicar una versión nueva de la tarifa (tariffs.manage)
+      description: La versión anterior no se modifica. Guardar la misma configuración no publica versión.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TariffInput" }
+      responses:
+        "200": { description: "`data.tariff` con `version` actualizada" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "Datos o reglas inválidos" }
+  /api/v1/tariffs/{tariff}/status:
+    parameters: [{ $ref: "#/components/parameters/Tariff" }]
+    post:
+      tags: [Tarifas]
+      summary: Activar o desactivar; publica una versión (tariffs.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [active, inactive] }
+                change_note: { type: string, maxLength: 255, nullable: true }
+      responses:
+        "200": { description: "`data.tariff`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/tariffs/{tariff}/versions:
+    parameters: [{ $ref: "#/components/parameters/Tariff" }]
+    get:
+      tags: [Tarifas]
+      summary: Historial de versiones, la más reciente primero (tariffs.view)
+      responses:
+        "200": { description: "`data.items` con `version`, `effective_from`, `status`, reglas, `change_note` y `author`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/tariffs/simulate:
+    post:
+      tags: [Tarifas]
+      summary: Simular el cobro de una estancia (tariffs.view)
+      description: Entrada y salida en hora local del parqueadero. Usa el mismo motor que la salida real.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lot_id, vehicle_type, entry_at, exit_at]
+              properties:
+                lot_id: { $ref: "#/components/schemas/Ulid" }
+                vehicle_type: { $ref: "#/components/schemas/VehicleType" }
+                zone_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+                entry_at: { type: string, example: "2026-11-04T19:30", description: "YYYY-MM-DDTHH:MM local" }
+                exit_at: { type: string, example: "2026-11-05T08:00" }
+                discount_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+      responses:
+        "200": { description: "`data.quote`", content: { application/json: { schema: { type: object, properties: { quote: { $ref: "#/components/schemas/Quote" } } } } } }
+        "422": { description: "Datos inválidos, salida anterior a la entrada o más de 62 días" }
+        "429": { $ref: "#/components/responses/TooManyAttempts" }
+  /api/v1/discounts:
+    get:
+      tags: [Tarifas]
+      summary: Descuentos y promociones (tariffs.view)
+      parameters:
+        - { name: lot_id, in: query, description: "Los del parqueadero y los de todos", schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: application, in: query, schema: { type: string, enum: [manual, automatic] } }
+        - { name: status, in: query, schema: { type: string, enum: [active, inactive] } }
+      responses:
+        "200": { description: "`data.items`" }
+    post:
+      tags: [Tarifas]
+      summary: Crear un descuento (tariffs.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DiscountInput" }
+      responses:
+        "201": { description: "`data.discount`" }
+        "422": { description: "Datos inválidos o INVALID_DISCOUNT" }
+  /api/v1/discounts/{discount}:
+    parameters: [{ name: discount, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    patch:
+      tags: [Tarifas]
+      summary: Editar un descuento; solo afecta cobros futuros (tariffs.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DiscountInput" }
+      responses:
+        "200": { description: "`data.discount`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/discounts/{discount}/status:
+    parameters: [{ name: discount, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Tarifas]
+      summary: Activar o desactivar un descuento (tariffs.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [status], properties: { status: { type: string, enum: [active, inactive] } } }
+      responses:
+        "200": { description: "`data.discount`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/reservations:
+    get:
+      tags: [Reservas]
+      summary: Reservas, las más próximas primero (reservations.view)
+      parameters:
+        - { name: lot_id, in: query, schema: { $ref: "#/components/schemas/Ulid" }, description: "Requerido con from_date/to_date" }
+        - { name: "status[]", in: query, schema: { type: array, items: { $ref: "#/components/schemas/ReservationStatus" } } }
+        - { name: search, in: query, schema: { type: string, maxLength: 20 }, description: "Placa sin separadores o código (R-7K3M9Q)" }
+        - { name: from_date, in: query, schema: { type: string, format: date }, description: "Día local de llegada" }
+        - { name: to_date, in: query, schema: { type: string, format: date } }
+        - { name: vehicle_id, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+        - { $ref: "#/components/parameters/Page" }
+      responses:
+        "200": { description: "`data.items` (Reservation) y `data.meta`" }
+    post:
+      tags: [Reservas]
+      summary: Reservar un espacio, una zona o cualquier espacio del parqueadero (reservations.manage)
+      description: |
+        Las reservas de un parqueadero se serializan y PostgreSQL rechaza con restricciones de
+        exclusión un espacio o un vehículo reservado dos veces para ventanas que se cruzan.
+        Sin `confirm` (o `confirm: false`) la reserva queda `pending` y retiene el cupo hasta
+        `hold_expires_at`. El precio se estima con las tarifas vigentes al inicio.
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lot_id, plate, country, starts_at, ends_at]
+              properties:
+                lot_id: { $ref: "#/components/schemas/Ulid" }
+                plate: { type: string, maxLength: 20 }
+                country: { type: string, minLength: 2, maxLength: 2 }
+                vehicle_type: { allOf: [{ $ref: "#/components/schemas/VehicleType" }], nullable: true, description: "Obligatorio si la placa no está registrada" }
+                customer_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+                zone_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+                space_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Espacio reservable; gana sobre zone_id" }
+                starts_at: { type: string, example: "2026-11-04T10:00", description: "Hora local del parqueadero" }
+                ends_at: { type: string, example: "2026-11-04T12:00" }
+                confirm: { type: boolean, default: true }
+                notes: { type: string, maxLength: 500, nullable: true }
+      responses:
+        "201": { description: "`data.reservation` y `data.replayed`" }
+        "200": { description: "Reintento con la misma clave: la reserva original" }
+        "409": { description: "FULLY_BOOKED, SPACE_ALREADY_RESERVED, VEHICLE_ALREADY_RESERVED, RESERVATION_CONFLICT o IDEMPOTENCY_KEY_REUSED" }
+        "422": { description: "INVALID_WINDOW, OUTSIDE_OPERATING_HOURS, RESERVATIONS_DISABLED, SPACE_NOT_RESERVABLE, SPACE_INCOMPATIBLE, NO_RESERVABLE_SPACES, VEHICLE_BLOCKED o datos inválidos" }
+  /api/v1/reservations/availability:
+    get:
+      tags: [Reservas]
+      summary: Capacidad libre de una ventana (reservations.view)
+      parameters:
+        - { name: lot_id, in: query, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: vehicle_type, in: query, required: true, schema: { $ref: "#/components/schemas/VehicleType" } }
+        - { name: starts_at, in: query, required: true, schema: { type: string, example: "2026-11-04T10:00" } }
+        - { name: ends_at, in: query, required: true, schema: { type: string, example: "2026-11-04T12:00" } }
+      responses:
+        "200": { description: "`pool`, `available`, `opens_throughout`, `policy`, `zones` (pool y libres) y `spaces` (libre para toda la ventana)" }
+  /api/v1/reservations/policy:
+    get:
+      tags: [Reservas]
+      summary: Reglas de reserva de un parqueadero (reservations.view)
+      parameters:
+        - { name: lot_id, in: query, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+      responses:
+        "200": { description: "`data.policy`" }
+    put:
+      tags: [Reservas]
+      summary: Cambiar las reglas de reserva (parking.update)
+      description: Aplica a las reservas nuevas; las existentes conservan sus horas derivadas.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lot_id, enabled, buffer_minutes, hold_minutes, arrival_tolerance_minutes, min_duration_minutes, max_duration_minutes, max_advance_days, within_operating_hours]
+              properties:
+                lot_id: { $ref: "#/components/schemas/Ulid" }
+                enabled: { type: boolean }
+                buffer_minutes: { type: integer, minimum: 0, maximum: 240 }
+                hold_minutes: { type: integer, minimum: 1, maximum: 1440 }
+                arrival_tolerance_minutes: { type: integer, minimum: 0, maximum: 720 }
+                min_duration_minutes: { type: integer, minimum: 15, maximum: 1440 }
+                max_duration_minutes: { type: integer, minimum: 15, maximum: 44640 }
+                max_advance_days: { type: integer, minimum: 1, maximum: 365 }
+                within_operating_hours: { type: boolean }
+      responses:
+        "200": { description: "`data.policy`" }
+        "422": { description: "INVALID_POLICY o datos inválidos" }
+  /api/v1/reservations/{reservation}:
+    parameters: [{ name: reservation, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    get:
+      tags: [Reservas]
+      summary: Detalle de una reserva (reservations.view)
+      responses:
+        "200": { description: "`data.reservation`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/reservations/{reservation}/confirm:
+    parameters: [{ name: reservation, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Reservas]
+      summary: Confirmar una reserva pendiente (reservations.manage)
+      responses:
+        "200": { description: "`data.reservation` confirmada" }
+        "422": { description: "RESERVATION_NOT_CHANGEABLE (por ejemplo, la retención venció)" }
+  /api/v1/reservations/{reservation}/cancel:
+    parameters: [{ name: reservation, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Reservas]
+      summary: Cancelar con motivo; libera el cupo y el espacio retenido (reservations.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 3, maxLength: 255 } } }
+      responses:
+        "200": { description: "`data.reservation` cancelada" }
+        "422": { description: "RESERVATION_NOT_CHANGEABLE (en curso o terminada) o motivo faltante" }
+  /api/v1/membership-plans:
+    get:
+      tags: [Mensualidades]
+      summary: Planes de mensualidad con las vigentes de cada uno (memberships.view)
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [active, inactive] } }
+      responses:
+        "200": { description: "`data.items` (MembershipPlan); `sold` cuenta las mensualidades vigentes o suspendidas" }
+    post:
+      tags: [Mensualidades]
+      summary: Crear un plan (memberships.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlanInput" }
+      responses:
+        "201": { description: "`data.plan`" }
+        "422": { description: "INVALID_PLAN, código repetido o parqueaderos y zonas de otra empresa" }
+  /api/v1/membership-plans/{plan}:
+    parameters: [{ name: plan, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    patch:
+      tags: [Mensualidades]
+      summary: Editar un plan (memberships.manage)
+      description: Precio y periodo aplican a las ventas nuevas; las reglas de acceso aplican a todas sus mensualidades.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlanInput" }
+      responses:
+        "200": { description: "`data.plan`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/membership-plans/{plan}/status:
+    parameters: [{ name: plan, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Mensualidades]
+      summary: Dejar de vender o volver a vender un plan (memberships.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [status], properties: { status: { type: string, enum: [active, inactive] } } }
+      responses:
+        "200": { description: "`data.plan`; las mensualidades vendidas no cambian" }
+  /api/v1/memberships:
+    get:
+      tags: [Mensualidades]
+      summary: Mensualidades, las vigentes que terminan antes primero (memberships.view)
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [active, suspended, expired, cancelled] } }
+        - { name: plan_id, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: customer_id, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: search, in: query, schema: { type: string, maxLength: 20 }, description: "Código (M-7K3M9Q) o placa sin separadores" }
+        - { $ref: "#/components/parameters/Page" }
+      responses:
+        "200": { description: "`data.items` (Membership sin `periods`) y `data.meta`" }
+    post:
+      tags: [Mensualidades]
+      summary: Vender una mensualidad (memberships.manage)
+      description: |
+        Registra los vehículos nuevos, abre el primer periodo por cobrar y, si se pide, asigna un
+        espacio marcado como asignable dentro de los parqueaderos y zonas del plan. Un vehículo
+        solo está en una mensualidad vigente y un espacio tiene un solo titular; PostgreSQL lo
+        garantiza con índices únicos parciales.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan_id, customer_id, starts_on, vehicles]
+              properties:
+                plan_id: { $ref: "#/components/schemas/Ulid" }
+                customer_id: { $ref: "#/components/schemas/Ulid" }
+                starts_on: { type: string, format: date, description: "Día local; entre 31 días atrás y 90 adelante" }
+                vehicles:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [plate, country]
+                    properties:
+                      plate: { type: string, maxLength: 20 }
+                      country: { type: string, minLength: 2, maxLength: 2 }
+                      vehicle_type: { allOf: [{ $ref: "#/components/schemas/VehicleType" }], nullable: true }
+                assigned_lot_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+                assigned_space_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+                auto_renew: { type: boolean, default: true }
+                notes: { type: string, maxLength: 500, nullable: true }
+      responses:
+        "201": { description: "`data.membership` con `periods`" }
+        "409": { description: "PLAN_FULL, VEHICLE_ALREADY_MEMBER, SPACE_ALREADY_ASSIGNED o MEMBERSHIP_CONFLICT" }
+        "422": { description: "PLAN_INACTIVE, TOO_MANY_VEHICLES, SPACE_NOT_ASSIGNABLE, SPACE_OUTSIDE_PLAN o datos inválidos" }
+  /api/v1/memberships/{membership}:
+    parameters: [{ name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    get:
+      tags: [Mensualidades]
+      summary: Detalle con sus periodos (memberships.view)
+      responses:
+        "200": { description: "`data.membership`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/memberships/{membership}/vehicles:
+    parameters: [{ name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Mensualidades]
+      summary: Agregar un vehículo (memberships.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plate, country]
+              properties:
+                plate: { type: string, maxLength: 20 }
+                country: { type: string, minLength: 2, maxLength: 2 }
+                vehicle_type: { allOf: [{ $ref: "#/components/schemas/VehicleType" }], nullable: true }
+      responses:
+        "200": { description: "`data.membership`" }
+        "409": { description: "VEHICLE_ALREADY_MEMBER" }
+        "422": { description: "TOO_MANY_VEHICLES o MEMBERSHIP_NOT_CHANGEABLE" }
+  /api/v1/memberships/{membership}/vehicles/{vehicle}:
+    parameters:
+      - { name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+      - { $ref: "#/components/parameters/Vehicle" }
+    delete:
+      tags: [Mensualidades]
+      summary: Retirar un vehículo (memberships.manage)
+      responses:
+        "200": { description: "`data.membership`" }
+        "422": { description: "VEHICLE_NOT_IN_MEMBERSHIP o LAST_VEHICLE (una mensualidad vigente necesita uno)" }
+  /api/v1/memberships/{membership}/renew:
+    parameters: [{ name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Mensualidades]
+      summary: Abrir el siguiente periodo por cobrar (memberships.manage)
+      description: |
+        Renovada antes de tiempo, los días pagados siguen cubiertos; vencida, empieza un ciclo
+        nuevo hoy. Se renueva a lo sumo un periodo adelante. Un reintento con la misma
+        `Idempotency-Key` devuelve la mensualidad sin abrir otro periodo.
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      responses:
+        "200": { description: "`data.membership`" }
+        "409": { description: "ALREADY_RENEWED" }
+        "422": { description: "MEMBERSHIP_NOT_CHANGEABLE (cancelada)" }
+  /api/v1/memberships/{membership}/suspend:
+    parameters: [{ name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Mensualidades]
+      summary: Suspender con motivo; sus vehículos pagan como visitantes (memberships.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 3, maxLength: 255 } } }
+      responses:
+        "200": { description: "`data.membership` suspendida" }
+        "422": { description: "MEMBERSHIP_NOT_CHANGEABLE o motivo faltante" }
+  /api/v1/memberships/{membership}/reactivate:
+    parameters: [{ name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Mensualidades]
+      summary: Reactivar una mensualidad suspendida (memberships.manage)
+      responses:
+        "200": { description: "`data.membership` vigente" }
+        "422": { description: "MEMBERSHIP_NOT_CHANGEABLE" }
+  /api/v1/memberships/{membership}/cancel:
+    parameters: [{ name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Mensualidades]
+      summary: Cancelar con motivo; libera vehículos, espacio y cupo (memberships.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 3, maxLength: 255 } } }
+      responses:
+        "200": { description: "`data.membership` cancelada" }
+        "422": { description: "MEMBERSHIP_NOT_CHANGEABLE o motivo faltante" }
+  /api/v1/memberships/{membership}/auto-renew:
+    parameters: [{ name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Mensualidades]
+      summary: Activar o desactivar la renovación automática (memberships.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [auto_renew], properties: { auto_renew: { type: boolean } } }
+      responses:
+        "200": { description: "`data.membership`" }
+  /api/v1/payments:
+    get:
+      tags: [Pagos]
+      summary: Historial de pagos con totales de los mismos filtros (payments.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: lot_id, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: method, in: query, schema: { $ref: "#/components/schemas/PaymentMethod" } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/PaymentStatus" } }
+        - { name: payable_type, in: query, schema: { $ref: "#/components/schemas/PayableType" } }
+        - { name: payable_id, in: query, description: "Requiere payable_type", schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: received_by, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+        - { name: reconciled, in: query, schema: { type: boolean } }
+        - { name: from_date, in: query, description: "Día local de la empresa", schema: { type: string, format: date } }
+        - { name: to_date, in: query, schema: { type: string, format: date } }
+        - { name: search, in: query, description: "Número de recibo o placa", schema: { type: string, maxLength: 20 } }
+      responses:
+        "200": { description: "`data.items` (`Payment`), `data.meta` y `data.totals` (count, collected, refunded, net, currencies, by_method)" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Pagos]
+      summary: Cobrar una estancia cerrada o un periodo de mensualidad (payments.create)
+      description: |
+        Sin `amount` cobra todo el saldo; un valor menor deja el resto pendiente. El cobro queda
+        bloqueado mientras se registra el pago. El efectivo admite `tendered_amount` y devuelve vueltas.
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payable_type, payable_id, method]
+              properties:
+                payable_type: { $ref: "#/components/schemas/PayableType" }
+                payable_id: { $ref: "#/components/schemas/Ulid" }
+                method: { $ref: "#/components/schemas/PaymentMethod" }
+                amount: { type: integer, minimum: 1, nullable: true }
+                tendered_amount: { type: integer, minimum: 0, nullable: true }
+                reference: { type: string, maxLength: 100, nullable: true }
+                notes: { type: string, maxLength: 500, nullable: true }
+      responses:
+        "201": { description: "`data.payment` (`Payment` con detalle) y `data.replayed: false`" }
+        "200": { description: "Reintento con la misma Idempotency-Key: el pago original y `data.replayed: true`" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: "NOTHING_DUE (abierta, anulada, cubierta, sin tarifa o en gracia), ALREADY_PAID o IDEMPOTENCY_KEY_REUSED" }
+        "422": { description: "AMOUNT_EXCEEDS_BALANCE, INSUFFICIENT_TENDER, INVALID_AMOUNT o validación" }
+  /api/v1/payments/{payment}:
+    parameters: [{ name: payment, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    get:
+      tags: [Pagos]
+      summary: Detalle del pago con reembolsos y cierre (payments.view)
+      responses:
+        "200": { description: "`data.payment`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/payments/{payment}/receipt:
+    parameters: [{ name: payment, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    get:
+      tags: [Pagos]
+      summary: Datos del recibo imprimible (payments.view)
+      description: Se arma con la copia guardada en el pago. No es factura electrónica.
+      responses:
+        "200": { description: "`data.receipt`: número, fecha, zona horaria, empresa, parqueadero, detalle, medio, recibido, vueltas, cajero y reembolsos" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/payments/{payment}/refunds:
+    parameters: [{ name: payment, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Pagos]
+      summary: Reembolsar todo o parte de un pago por el mismo medio (payments.refund)
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                amount: { type: integer, minimum: 1, nullable: true, description: "Por defecto lo que queda del pago" }
+                reason: { type: string, minLength: 3, maxLength: 255 }
+                channel: { type: string, enum: [provider, manual], nullable: true, description: "Pagos en línea: por la pasarela (solo el pago completo) o a mano fuera de ella" }
+                manual_method: { type: string, enum: [cash, transfer, other], nullable: true, description: "Con channel manual; el efectivo sale de la caja de quien reembolsa" }
+      responses:
+        "201": { description: "`data.payment` con el reembolso; el cobro vuelve a tener saldo" }
+        "200": { description: "Reintento con la misma Idempotency-Key" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: "PAYMENT_NOT_REFUNDABLE o IDEMPOTENCY_KEY_REUSED" }
+        "422": { description: "REFUND_EXCEEDS_PAYMENT, PARTIAL_REFUND_UNSUPPORTED, INVALID_AMOUNT o motivo faltante" }
+        "502": { description: "La pasarela rechazó el reembolso (REFUND_FAILED); el valor vuelve al pago" }
+        "503": { description: "La pasarela no respondió (PROVIDER_UNAVAILABLE)" }
+  /api/v1/payments/checkouts:
+    post:
+      tags: [Pagos]
+      summary: Crear un enlace de pago en línea para un cobro (payments.create)
+      description: |
+        Crea un pago pendiente sin número de recibo y devuelve `checkout_url`, la página pública que
+        lleva al checkout alojado de la pasarela. Solo hay un enlace pendiente por cobro. Ver ADR-020.
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payable_type, payable_id, account_id]
+              properties:
+                payable_type: { $ref: "#/components/schemas/PayableType" }
+                payable_id: { $ref: "#/components/schemas/Ulid" }
+                account_id: { $ref: "#/components/schemas/Ulid" }
+                amount: { type: integer, minimum: 1, nullable: true, description: "Por defecto el saldo" }
+      responses:
+        "201": { description: "`data.payment` pendiente con `checkout_url` y `expires_at`" }
+        "200": { description: "Reintento con la misma Idempotency-Key" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: "PAYMENT_PENDING, NOTHING_DUE, ALREADY_PAID o IDEMPOTENCY_KEY_REUSED" }
+        "422": { description: "PROVIDER_INACTIVE, AMOUNT_EXCEEDS_BALANCE o INVALID_AMOUNT" }
+  /api/v1/payments/{payment}/cancel:
+    parameters: [{ name: payment, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Pagos]
+      summary: Anular un enlace pendiente; consulta antes a la pasarela (payments.create)
+      responses:
+        "200": { description: "`data.payment` fallido con `failure_reason`" }
+        "409": { description: "PAYMENT_NOT_PENDING o ALREADY_PAID (la pasarela ya lo aprobó)" }
+  /api/v1/payments/{payment}/sync:
+    parameters: [{ name: payment, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Pagos]
+      summary: Consultar ahora a la pasarela el estado de un pago pendiente (payments.view)
+      responses:
+        "200": { description: "`data.payment` con el estado actual" }
+  /api/v1/payment-providers:
+    get:
+      tags: [Pagos]
+      summary: Cuentas de pasarela de la empresa (payments.configure)
+      responses:
+        "200": { description: "`data.items` (`ProviderAccount`) y `data.providers` (key, label, credential_keys, partial_refunds)" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Pagos]
+      summary: Conectar una cuenta de pasarela (payments.configure)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ProviderAccountInput" } } }
+      responses:
+        "201": { description: "`data.account`" }
+        "422": { description: "Validación; `credentials.<clave>` obligatorio" }
+  /api/v1/payment-providers/options:
+    get:
+      tags: [Pagos]
+      summary: Cuentas activas para enviar enlaces, sin configuración (payments.create)
+      responses:
+        "200": { description: "`data.items` (id, name, provider, provider_label, sandbox)" }
+  /api/v1/payment-providers/{account}:
+    parameters: [{ name: account, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    patch:
+      tags: [Pagos]
+      summary: Editar una cuenta; una credencial vacía conserva la guardada (payments.configure)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ProviderAccountInput" } } }
+      responses:
+        "200": { description: "`data.account`" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "PROVIDER_IMMUTABLE o validación" }
+  /api/v1/payment-providers/{account}/reconcile:
+    parameters: [{ name: account, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }]
+    post:
+      tags: [Pagos]
+      summary: Verificar los pagos en línea de la cuenta con la pasarela (payments.reconcile)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from_date, to_date]
+              properties:
+                from_date: { type: string, format: date, description: "Día local de la empresa" }
+                to_date: { type: string, format: date }
+      responses:
+        "200": { description: "`data.reconciliation`: checked, fixed, issues, truncated e items (issue: not_found, status_mismatch, amount_mismatch, overpaid, unreachable)" }
+  /api/v1/public/checkouts/{token}:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string, minLength: 48, maxLength: 48 } }
+      - { name: volver, in: query, description: "Al volver de la pasarela consulta el resultado (como mucho cada 15 s)", schema: { type: boolean } }
+    get:
+      tags: [Pagos]
+      summary: Página pública de un enlace de pago; sin sesión, el token es el acceso
+      security: []
+      responses:
+        "200": { description: "`data.checkout`: tenant, description, amount, currency, status (o expired), number, provider, expires_at y checkout (url, method GET|POST, fields) mientras se pueda pagar" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/webhooks/payments/{provider}/{account}:
+    parameters:
+      - { name: provider, in: path, required: true, schema: { type: string, enum: [wompi, payu] } }
+      - { name: account, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    post:
+      tags: [Pagos]
+      summary: Notificaciones de la pasarela (sin sesión ni CSRF; verificadas por firma)
+      description: |
+        Wompi envía el evento JSON con `signature.checksum`; PayU, su confirmación como formulario
+        con `sign`. Cada notificación se aplica una sola vez. Ver ADR-020.
+      security: []
+      responses:
+        "200": { description: "Registrada (también duplicadas y referencias desconocidas)" }
+        "401": { description: "Firma inválida" }
+        "404": { description: "Cuenta desconocida" }
+        "500": { description: "No se pudo aplicar; la pasarela reintenta" }
+  /api/v1/payment-reconciliations:
+    get:
+      tags: [Pagos]
+      summary: Cierres de caja, el más reciente primero (payments.view)
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { name: cashier_id, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+      responses:
+        "200": { description: "`data.items` (`Reconciliation`) y `data.meta`" }
+    post:
+      tags: [Pagos]
+      summary: Cerrar la caja de un cajero en una moneda
+      description: |
+        Toma los pagos que recibió y los reembolsos que hizo desde su último cierre. La propia caja
+        requiere payments.create; la de otro cajero, payments.reconcile.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currency, counted_cash]
+              properties:
+                cashier_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Por defecto quien cierra" }
+                currency: { type: string, example: COP }
+                counted_cash: { type: integer, minimum: 0 }
+                notes: { type: string, maxLength: 500, nullable: true }
+      responses:
+        "201": { description: "`data.reconciliation`" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { description: "NOTHING_TO_RECONCILE, INVALID_AMOUNT o validación" }
+  /api/v1/payment-reconciliations/preview:
+    get:
+      tags: [Pagos]
+      summary: Lo que tomaría un cierre ahora, por moneda
+      parameters:
+        - { name: cashier_id, in: query, description: "Por defecto quien consulta", schema: { $ref: "#/components/schemas/Ulid" } }
+      responses:
+        "200": { description: "`data.cashier_id` y `data.currencies` (currency, payments_count, refunds_count, first_movement_at, by_method, expected_cash)" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/live:
+    get:
+      tags: [Tiempo real]
+      summary: Marcadores de cambio de la empresa y de un parqueadero
+      description: |
+        No devuelve datos, solo marcadores opacos que cambian después de cada entrada, salida,
+        anulación o cambio de espacio. La interfaz los consulta cada pocos segundos y recarga por
+        la API cuando cambian. `none` significa que aún no hay cambios registrados en la caché.
+      parameters:
+        - { name: lot_id, in: query, schema: { $ref: "#/components/schemas/Ulid" } }
+      responses:
+        "200": { description: "`data.tenant` y `data.lot` (null sin lot_id)" }
+        "429": { $ref: "#/components/responses/TooManyAttempts" }
 components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: nuvora-session
+  parameters:
+    Page: { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+    Lot: { name: lot, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    Space: { name: space, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    Device: { name: device, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    Customer: { name: customer, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    Vehicle: { name: vehicle, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    Membership: { name: membership, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    Session: { name: session, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    Tariff: { name: tariff, in: path, required: true, schema: { $ref: "#/components/schemas/Ulid" } }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: Opcional. Una por intento; repetirla en un reintento devuelve el resultado original.
+      schema: { type: string, pattern: "^[A-Za-z0-9_.:-]{8,80}$" }
+  responses:
+    Unauthenticated:
+      description: No autenticado (UNAUTHENTICATED)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Forbidden:
+      description: Sin permiso (FORBIDDEN)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: No existe o pertenece a otra empresa (NOT_FOUND)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    TenantRequired:
+      description: No hay empresa activa (TENANT_REQUIRED)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    ValidationFailed:
+      description: Datos inválidos (VALIDATION_FAILED); `details` trae los mensajes por campo
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    TooManyAttempts:
+      description: Demasiados intentos (TOO_MANY_ATTEMPTS)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
   schemas:
+    Ulid: { type: string, pattern: "^[0-9a-hjkmnp-tv-z]{26}$", example: 01m5dtbyxqk1x864r4dt1g8k8x }
+    Envelope:
+      type: object
+      required: [success, data, request_id]
+      properties:
+        success: { type: boolean, enum: [true] }
+        data: {}
+        request_id: { type: string }
     Error:
       type: object
       required: [success, error, request_id]
@@ -83,3 +1769,414 @@ components:
             message: { type: string }
             details: { type: object }
         request_id: { type: string }
+    PageMeta:
+      type: object
+      properties:
+        current_page: { type: integer }
+        last_page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
+    SpaceStatus: { type: string, enum: [available, occupied, reserved, blocked, maintenance, out_of_service] }
+    SessionStatus: { type: string, enum: [open, closed, cancelled] }
+    SpaceType: { type: string, enum: [car, motorcycle, truck, van, ev, disabled, vip, reserved] }
+    DeviceStatus: { type: string, enum: [online, offline, degraded, unknown, maintenance] }
+    DeviceType: { type: string, enum: [camera, barrier, ticket_printer, display, sensor, access_reader, payment_terminal, kiosk] }
+    Occupancy:
+      type: object
+      description: Capacidad excluye espacios fuera de servicio; `in_use` suma ocupados y reservados; `rate` es un porcentaje entero.
+      properties:
+        total: { type: integer }
+        capacity: { type: integer }
+        available: { type: integer }
+        in_use: { type: integer }
+        rate: { type: integer, minimum: 0, maximum: 100 }
+        by_status: { type: object, additionalProperties: { type: integer } }
+    OperatingHour:
+      type: object
+      required: [day_of_week, mode]
+      properties:
+        day_of_week: { type: integer, minimum: 1, maximum: 7, description: "1 = lunes" }
+        mode: { type: string, enum: [closed, open_24h, scheduled] }
+        opens_at: { type: string, example: "06:00", nullable: true }
+        closes_at: { type: string, example: "22:00", nullable: true }
+    ParkingLotInput:
+      type: object
+      required: [name, code, timezone, currency, grace_period_minutes, status]
+      properties:
+        name: { type: string, maxLength: 120 }
+        code: { type: string, maxLength: 40 }
+        description: { type: string, maxLength: 500, nullable: true }
+        address: { type: string, maxLength: 200, nullable: true }
+        city: { type: string, maxLength: 80, nullable: true }
+        latitude: { type: string, nullable: true, description: "Decimal entre -90 y 90; exige longitud" }
+        longitude: { type: string, nullable: true, description: "Decimal entre -180 y 180; exige latitud" }
+        timezone: { type: string, example: America/Bogota }
+        currency: { type: string, example: COP, pattern: "^[A-Za-z]{3}$" }
+        grace_period_minutes: { type: integer, minimum: 0, maximum: 240 }
+        status: { type: string, enum: [active, inactive, maintenance] }
+    ParkingLot:
+      allOf:
+        - $ref: "#/components/schemas/ParkingLotInput"
+        - type: object
+          properties:
+            id: { $ref: "#/components/schemas/Ulid" }
+            zones_count: { type: integer }
+            gates_count: { type: integer }
+            occupancy: { $ref: "#/components/schemas/Occupancy" }
+            operating_hours: { type: array, items: { $ref: "#/components/schemas/OperatingHour" } }
+    ParkingZoneInput:
+      type: object
+      required: [name, code, is_active]
+      properties:
+        name: { type: string, maxLength: 80 }
+        code: { type: string, maxLength: 40 }
+        description: { type: string, maxLength: 300, nullable: true }
+        is_active: { type: boolean }
+        sort_order: { type: integer, minimum: 0, maximum: 1000 }
+    ParkingSpaceAttributes:
+      type: object
+      required: [type, is_reservable, is_assignable]
+      properties:
+        zone_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+        type: { $ref: "#/components/schemas/SpaceType" }
+        floor: { type: string, maxLength: 20, nullable: true }
+        is_reservable: { type: boolean }
+        is_assignable: { type: boolean }
+    ParkingSpaceInput:
+      allOf:
+        - $ref: "#/components/schemas/ParkingSpaceAttributes"
+        - type: object
+          required: [code]
+          properties:
+            code: { type: string, maxLength: 40 }
+    ParkingSpace:
+      type: object
+      properties:
+        id: { $ref: "#/components/schemas/Ulid" }
+        code: { type: string }
+        type: { $ref: "#/components/schemas/SpaceType" }
+        status: { $ref: "#/components/schemas/SpaceStatus" }
+        floor: { type: string, nullable: true }
+        is_reservable: { type: boolean }
+        is_assignable: { type: boolean }
+        zone: { type: object, nullable: true }
+        status_changed_at: { type: string, format: date-time, nullable: true }
+        manual_transitions: { type: array, items: { $ref: "#/components/schemas/SpaceStatus" } }
+        removable: { type: boolean }
+    ParkingGateInput:
+      type: object
+      required: [name, code, direction, status]
+      properties:
+        name: { type: string, maxLength: 80 }
+        code: { type: string, maxLength: 40 }
+        direction: { type: string, enum: [entry, exit, bidirectional] }
+        status: { type: string, enum: [active, inactive, maintenance] }
+    DeviceInput:
+      type: object
+      required: [parking_lot_id, name, code, type]
+      properties:
+        parking_lot_id: { $ref: "#/components/schemas/Ulid" }
+        gate_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+        name: { type: string, maxLength: 80 }
+        code: { type: string, maxLength: 40, description: "Único por empresa; Nuvora Edge reporta con este código" }
+        type: { $ref: "#/components/schemas/DeviceType" }
+        vendor: { type: string, maxLength: 80, nullable: true }
+        model: { type: string, maxLength: 80, nullable: true }
+        serial_number: { type: string, maxLength: 80, nullable: true }
+        ip_address: { type: string, nullable: true }
+        firmware_version: { type: string, maxLength: 40, nullable: true }
+    CustomerType: { type: string, enum: [individual, business, corporate] }
+    CustomerInput:
+      type: object
+      required: [type, name]
+      properties:
+        type: { $ref: "#/components/schemas/CustomerType" }
+        name: { type: string, minLength: 2, maxLength: 120 }
+        document_type: { type: string, maxLength: 20, nullable: true, description: "Código definido por la empresa (CC, NIT, PAS...)" }
+        document_number: { type: string, maxLength: 40, nullable: true, description: "Único por empresa y tipo, sin importar puntos ni guiones" }
+        email: { type: string, format: email, nullable: true }
+        phone: { type: string, maxLength: 40, nullable: true }
+        business_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Solo personas; debe ser una empresa o corporativo" }
+        notes: { type: string, maxLength: 1000, nullable: true }
+    VehicleType: { type: string, enum: [car, motorcycle, bicycle, van, truck, bus, other] }
+    VehicleRelationship: { type: string, enum: [owner, driver, authorized] }
+    VehicleInput:
+      type: object
+      required: [plate, country, type]
+      properties:
+        plate: { type: string, maxLength: 20, description: "Se guarda en mayúsculas sin separadores" }
+        country: { type: string, minLength: 2, maxLength: 2, description: "ISO 3166-1 alfa-2" }
+        type: { $ref: "#/components/schemas/VehicleType" }
+        brand: { type: string, maxLength: 60, nullable: true }
+        model: { type: string, maxLength: 60, nullable: true }
+        color: { type: string, maxLength: 40, nullable: true }
+        year: { type: integer, minimum: 1900, nullable: true }
+        is_electric: { type: boolean, default: false }
+        notes: { type: string, maxLength: 1000, nullable: true }
+        customer_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Solo al registrar" }
+        relationship: { $ref: "#/components/schemas/VehicleRelationship" }
+    VehicleEvent:
+      type: object
+      properties:
+        id: { $ref: "#/components/schemas/Ulid" }
+        type: { type: string, enum: [registered, updated, plate_changed, status_changed, customer_linked, relationship_changed, customer_unlinked, entered, exited, session_cancelled, reserved] }
+        data: { type: object, additionalProperties: true }
+        actor: { type: object, nullable: true, properties: { id: { type: string }, name: { type: string } } }
+        occurred_at: { type: string, format: date-time }
+    TariffInput:
+      type: object
+      required: [code, name, vehicle_types, windows, brackets, step_minutes, step_amount]
+      description: Montos en unidad menor de la moneda del parqueadero.
+      properties:
+        code: { type: string, maxLength: 40 }
+        name: { type: string, maxLength: 80 }
+        priority: { type: integer, minimum: -100, maximum: 100, default: 0 }
+        vehicle_types: { type: array, items: { $ref: "#/components/schemas/VehicleType" }, description: "Vacío aplica a todos" }
+        zone_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true }
+        windows:
+          type: array
+          maxItems: 14
+          description: "Franjas de entrada en hora local; vacío aplica siempre. end < start cruza la medianoche"
+          items:
+            type: object
+            required: [days, start, end]
+            properties:
+              days: { type: array, items: { type: integer, minimum: 1, maximum: 7 } }
+              start: { type: string, example: "19:00" }
+              end: { type: string, example: "06:00" }
+        grace_minutes: { type: integer, minimum: 0, maximum: 240, nullable: true, description: "Null usa la del parqueadero" }
+        brackets:
+          type: array
+          maxItems: 12
+          description: Precios acumulados; minutos crecientes y valores que no bajan
+          items:
+            type: object
+            required: [up_to_minutes, amount]
+            properties:
+              up_to_minutes: { type: integer, minimum: 1 }
+              amount: { type: integer, minimum: 0 }
+        step_minutes: { type: integer, minimum: 1, maximum: 44640, description: "Fracción iniciada después del último tramo" }
+        step_amount: { type: integer, minimum: 0 }
+        daily_max_amount: { type: integer, minimum: 1, nullable: true, description: "Tope por cada 24 h desde la entrada" }
+        change_note: { type: string, maxLength: 255, nullable: true }
+    DiscountInput:
+      type: object
+      required: [code, name, type, value, application, vehicle_types, days]
+      properties:
+        parking_lot_id: { allOf: [{ $ref: "#/components/schemas/Ulid" }], nullable: true, description: "Null aplica en todos los parqueaderos" }
+        code: { type: string, maxLength: 40 }
+        name: { type: string, maxLength: 80 }
+        type: { type: string, enum: [percentage, fixed_amount, free_minutes] }
+        value: { type: integer, minimum: 1, description: "Puntos básicos (2000 = 20 %), unidad menor o minutos" }
+        currency: { type: string, nullable: true, description: "Requerida para valor fijo sin parqueadero" }
+        application: { type: string, enum: [manual, automatic] }
+        vehicle_types: { type: array, items: { $ref: "#/components/schemas/VehicleType" } }
+        days: { type: array, items: { type: integer, minimum: 1, maximum: 7 }, description: "Días de la salida; vacío todos" }
+        valid_from: { type: string, format: date, nullable: true }
+        valid_until: { type: string, format: date, nullable: true }
+    PriceLine:
+      type: object
+      properties:
+        type: { type: string, enum: [bracket, step, day, daily_cap, grace, discount, membership] }
+        label: { type: string }
+        amount: { type: integer, description: "Negativo en los descuentos y en la cobertura de la mensualidad" }
+        quantity: { type: integer, nullable: true }
+        unit_amount: { type: integer, nullable: true }
+    Quote:
+      type: object
+      properties:
+        status: { type: string, enum: [priced, unpriced, covered], description: "covered: la paga una mensualidad; subtotal es lo que habría cobrado la tarifa y total es 0" }
+        currency: { type: string }
+        tariff: { type: object, nullable: true, properties: { id: { type: string }, version_id: { type: string }, version: { type: integer }, code: { type: string }, name: { type: string } } }
+        discount_rule: { type: object, nullable: true, properties: { id: { type: string }, code: { type: string }, name: { type: string } } }
+        membership: { type: object, nullable: true, properties: { id: { type: string }, code: { type: string }, plan: { type: string } } }
+        stay_minutes: { type: integer }
+        charged_minutes: { type: integer, nullable: true }
+        grace_minutes: { type: integer, nullable: true }
+        grace_applied: { type: boolean }
+        subtotal: { type: integer, nullable: true }
+        discount: { type: integer, nullable: true }
+        total: { type: integer, nullable: true }
+        lines: { type: array, items: { $ref: "#/components/schemas/PriceLine" } }
+        reason: { type: string, nullable: true }
+        priced_at: { type: string, format: date-time }
+        quote_token: { type: string, description: "Enviarlo con la salida fija este precio hasta quote_expires_at" }
+        quote_expires_at: { type: string, format: date-time }
+    PlanInput:
+      type: object
+      required: [code, name, category, billing_period, price_amount, currency, grace_days, max_vehicles, parking_lot_ids, zone_ids, vehicle_types, windows]
+      description: Las listas vacías de parqueaderos, zonas, tipos o franjas no restringen.
+      properties:
+        code: { type: string, maxLength: 40 }
+        name: { type: string, maxLength: 80 }
+        category: { type: string, enum: [monthly, weekly, corporate, vip, employee, resident, student, other] }
+        billing_period: { type: string, enum: [weekly, monthly, quarterly, yearly] }
+        price_amount: { type: integer, minimum: 0, description: "Por periodo, en unidad menor (120.000 COP = 12000000)" }
+        currency: { type: string, example: COP }
+        grace_days: { type: integer, minimum: 0, maximum: 31 }
+        max_vehicles: { type: integer, minimum: 1, maximum: 500 }
+        capacity: { type: integer, minimum: 1, nullable: true, description: "Cupos a la venta; null sin límite" }
+        parking_lot_ids: { type: array, items: { $ref: "#/components/schemas/Ulid" } }
+        zone_ids: { type: array, items: { $ref: "#/components/schemas/Ulid" }, description: "El vehículo debe quedar en una de estas zonas" }
+        vehicle_types: { type: array, items: { $ref: "#/components/schemas/VehicleType" } }
+        windows:
+          type: array
+          maxItems: 14
+          description: Franjas semanales en hora local; decide la hora de llegada
+          items:
+            type: object
+            required: [days, start, end]
+            properties:
+              days: { type: array, items: { type: integer, minimum: 1, maximum: 7 } }
+              start: { type: string, example: "06:00" }
+              end: { type: string, example: "20:00" }
+        description: { type: string, maxLength: 500, nullable: true }
+    Membership:
+      type: object
+      description: Fechas en días locales de la empresa; el fin del periodo es inclusivo.
+      properties:
+        id: { $ref: "#/components/schemas/Ulid" }
+        code: { type: string, example: M-7K3M9Q }
+        status: { type: string, enum: [active, suspended, expired, cancelled] }
+        status_reason: { type: string, nullable: true }
+        plan: { type: object, properties: { id: { type: string }, code: { type: string }, name: { type: string }, category: { type: string } } }
+        customer: { type: object, nullable: true }
+        billing_period: { type: string }
+        price_amount: { type: integer, description: "Precio vendido; no cambia si el plan cambia" }
+        currency: { type: string }
+        grace_days: { type: integer }
+        starts_on: { type: string, format: date }
+        current_period_start: { type: string, format: date }
+        current_period_end: { type: string, format: date }
+        covered_until: { type: string, format: date, description: "Fin del periodo más los días de gracia" }
+        ended_on: { type: string, format: date, nullable: true }
+        auto_renew: { type: boolean }
+        assigned_space: { type: object, nullable: true, properties: { id: { type: string }, code: { type: string }, parking_lot_id: { type: string } } }
+        vehicles:
+          type: array
+          items: { type: object, properties: { id: { type: string }, plate: { type: string }, country: { type: string }, type: { type: string }, added_at: { type: string, format: date-time } } }
+        notes: { type: string, nullable: true }
+        periods:
+          type: array
+          description: Solo en el detalle y las mutaciones; el más reciente primero
+          items:
+            type: object
+            properties:
+              id: { $ref: "#/components/schemas/Ulid" }
+              sequence: { type: integer }
+              starts_on: { type: string, format: date }
+              ends_on: { type: string, format: date }
+              amount: { type: integer }
+              currency: { type: string }
+              status: { type: string, enum: [due, paid, void], description: "paid cuando Payments lo cobró completo" }
+              origin: { type: string, enum: [subscription, renewal, automatic] }
+              paid: { type: integer, description: "Cobrado, menos reembolsos" }
+              balance: { type: integer, description: "Saldo por cobrar" }
+        outstanding: { type: integer, description: "Saldo de todos los periodos; solo en el detalle" }
+    ReservationStatus: { type: string, enum: [pending, confirmed, active, completed, cancelled, expired, no_show] }
+    PaymentMethod: { type: string, enum: [cash, card, transfer, other], description: "card, transfer y other son pagos manuales con referencia" }
+    PaymentStatus: { type: string, enum: [pending, completed, failed, partially_refunded, refunded] }
+    PayableType: { type: string, enum: [parking_session, membership_period] }
+    PaymentBalance:
+      type: object
+      description: Lo que debe un cobro. not_required cuando no tiene valor (gracia, mensualidad, sin tarifa).
+      properties:
+        status: { type: string, enum: [not_required, pending, partial, paid, overpaid], description: "overpaid: una aprobación tardía pagó de más; reembolsa la diferencia" }
+        due: { type: integer }
+        paid: { type: integer }
+        balance: { type: integer }
+    Payment:
+      type: object
+      properties:
+        id: { $ref: "#/components/schemas/Ulid" }
+        number: { type: string, nullable: true, example: RC-000001, description: "Los pagos en línea lo reciben al aprobarse" }
+        status: { $ref: "#/components/schemas/PaymentStatus" }
+        payable: { type: object, properties: { type: { $ref: "#/components/schemas/PayableType" }, id: { type: string } } }
+        parking_lot: { type: object, nullable: true }
+        customer_id: { type: string, nullable: true }
+        description: { type: string }
+        plate: { type: string, nullable: true }
+        method: { $ref: "#/components/schemas/PaymentMethod" }
+        provider: { type: string, example: offline }
+        amount: { type: integer }
+        refunded_amount: { type: integer }
+        net_amount: { type: integer }
+        currency: { type: string }
+        tendered_amount: { type: integer, nullable: true }
+        change_amount: { type: integer, nullable: true }
+        reference: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        received_at: { type: string, format: date-time }
+        received_by: { type: object, nullable: true }
+        reconciled: { type: boolean }
+        provider_account: { type: object, nullable: true, properties: { id: { type: string }, name: { type: string } } }
+        provider_reference: { type: string, nullable: true, description: "Transacción en la pasarela" }
+        provider_method: { type: string, nullable: true, example: PSE }
+        failure_reason: { type: string, nullable: true }
+        expires_at: { type: string, format: date-time, nullable: true, description: "Vencimiento del enlace" }
+        checkout_url: { type: string, nullable: true, description: "Solo en el detalle de un enlace pendiente" }
+        requested_by: { type: object, nullable: true, description: "Quién creó el enlace" }
+        details: { type: object, description: "Solo en el detalle: copia de la estancia o el periodo para el recibo" }
+        refunds: { type: array, description: "Solo en el detalle", items: { type: object } }
+        reconciliation: { type: object, nullable: true, description: "Solo en el detalle" }
+    ProviderAccountInput:
+      type: object
+      required: [provider, name, environment, status, credentials]
+      properties:
+        provider: { type: string, enum: [wompi, payu] }
+        name: { type: string, maxLength: 80 }
+        environment: { type: string, enum: [sandbox, production] }
+        status: { type: string, enum: [active, inactive] }
+        credentials:
+          type: object
+          additionalProperties: { type: string, nullable: true }
+          description: "Wompi: public_key, private_key, events_secret, integrity_secret. PayU: merchant_id, account_id, api_key, api_login"
+    ProviderAccount:
+      type: object
+      properties:
+        id: { $ref: "#/components/schemas/Ulid" }
+        provider: { type: string, enum: [wompi, payu] }
+        name: { type: string }
+        environment: { type: string, enum: [sandbox, production] }
+        status: { type: string, enum: [active, inactive] }
+        credentials: { type: object, additionalProperties: { type: string }, description: "Solo los últimos cuatro caracteres" }
+        notification_url: { type: string, description: "URL a registrar en la pasarela" }
+        updated_at: { type: string, format: date-time, nullable: true }
+    MethodTotals:
+      type: object
+      properties: { count: { type: integer }, collected: { type: integer }, refunded: { type: integer }, net: { type: integer } }
+    Reconciliation:
+      type: object
+      properties:
+        id: { $ref: "#/components/schemas/Ulid" }
+        number: { type: string, example: CC-000001 }
+        cashier: { type: object, nullable: true }
+        closed_by: { type: object, nullable: true }
+        currency: { type: string }
+        first_movement_at: { type: string, format: date-time, nullable: true }
+        closed_at: { type: string, format: date-time }
+        payments_count: { type: integer }
+        refunds_count: { type: integer }
+        by_method: { type: object, additionalProperties: { $ref: "#/components/schemas/MethodTotals" } }
+        expected_cash: { type: integer, description: "Efectivo recibido menos efectivo reembolsado" }
+        counted_cash: { type: integer }
+        difference: { type: integer, description: "contado − esperado" }
+        notes: { type: string, nullable: true }
+    SessionCharge:
+      type: object
+      description: Cobro guardado en la salida; null mientras la sesión está abierta o si se anuló.
+      properties:
+        status: { type: string, enum: [priced, unpriced, covered], description: "covered: la paga una mensualidad; subtotal es lo que habría cobrado la tarifa y total es 0" }
+        currency: { type: string, nullable: true }
+        subtotal: { type: integer, nullable: true }
+        discount: { type: integer, nullable: true }
+        total: { type: integer, nullable: true }
+        charged_minutes: { type: integer, nullable: true }
+        grace_applied: { type: boolean }
+        tariff: { type: object, nullable: true }
+        discount_rule: { type: object, nullable: true }
+        membership: { type: object, nullable: true, description: "Mensualidad que cubrió la estancia" }
+        lines: { type: array, items: { $ref: "#/components/schemas/PriceLine" } }
+        reason: { type: string, nullable: true }
+security:
+  - session: []

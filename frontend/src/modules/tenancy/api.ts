@@ -30,3 +30,15 @@ export async function listAudit(page: number): Promise<{ items: AuditEvent[]; me
 
   return response.data.data
 }
+
+export async function syncMemberRoles(membershipId: string, roles: string[]): Promise<void> {
+  await ensureCsrfCookie()
+  await http.put(`/api/v1/tenant/members/${membershipId}/roles`, { roles })
+}
+
+export async function createRole(name: string, permissions: string[]): Promise<TenantRole> {
+  await ensureCsrfCookie()
+  const response = await http.post<ApiSuccess<{ role: TenantRole }>>('/api/v1/tenant/roles', { name, permissions })
+
+  return response.data.data.role
+}

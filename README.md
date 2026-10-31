@@ -3372,6 +3372,10 @@ Deliverable:
 
 A working development platform.
 
+Status:
+
+Implemented. Review during 0.3: the Redis readiness test depended on Redis being unreachable and failed inside Docker; it now forces the failure explicitly. Static analysis beyond Pint and `vue-tsc` (for example Larastan) is still pending.
+
 ---
 
 
@@ -3403,6 +3407,16 @@ Status:
 
 Implemented in the codebase: users, session authentication, email verification, password reset, tenants, memberships, tenant context, permission-based roles, tenant isolation, and the audit foundation. See ADR-012.
 
+Review during 0.3: the OpenAPI contract only described health and login; it now documents every 0.2 endpoint. The API supports changing a member's roles and creating custom roles, but the interface only adds and suspends members; role management screens are pending.
+
+Review during 0.5: the roles screen and role changes on members are now in the interface. Sessions add `sessions.view` and `sessions.cancel` to the catalog.
+
+Review during 0.6: pricing adds `tariffs.view`, `tariffs.manage` and `sessions.discount`, backfilled to existing system roles. Row level security is enabled on every tenant table, but the local PostgreSQL role is a superuser and owns the tables, so the policies do not apply to the application connection (see ADR-012). Before production the application must connect with a role without `BYPASSRLS` that does not own the tables, or the tables need `FORCE ROW LEVEL SECURITY`.
+
+Review during 0.8: memberships add `memberships.view` (every system role) and `memberships.manage` (owner, administrator, supervisor, cashier), backfilled to existing system roles. The membership tables have row level security like the rest, so the 0.6 note about the database role still applies and is still open.
+
+Review during 0.9: payments add `payments.reconcile` (owner, administrator, supervisor). The payment permissions were already in the catalog; a migration backfills all of them to existing system roles. The payment tables have row level security too, so the 0.6 note about the database role is still open, and with money involved it must be closed before production.
+
 ---
 
 
@@ -3427,6 +3441,34 @@ Deliverable:
 
 Complete digital representation of physical parking infrastructure.
 
+Status:
+
+Implemented in the codebase:
+
+```text
+Parking lots with address, coordinates, timezone, currency and grace period
+Weekly operating hours in lot-local time, including overnight shifts
+Zones
+Spaces with type, floor, reservable/assignable flags and bulk numbering
+Space state machine with audited administrative transitions
+Live occupancy per lot (capacity excludes out-of-service spaces)
+Gates with direction and status
+Device registry (camera, barrier, reader, kiosk...) linked to lot and gate
+devices.view / devices.manage permissions, backfilled to existing system roles
+Composite tenant foreign keys and row level security on every new table
+Operations dashboard, space map and device screens
+```
+
+Occupied and reserved states belong to parking sessions (0.5) and reservations (0.7). Device connectivity (online, offline, degraded) arrives with Edge heartbeats (0.13). See ADR-013.
+
+Review during 0.5: deleting a space did not translate foreign key errors, so a space referenced by sessions would have answered 500; it now answers `SPACE_HAS_HISTORY`. A gate referenced by sessions answers `GATE_IN_USE` (formerly `GATE_HAS_DEVICES`). The demo seeder marked spaces as occupied without sessions; occupation now comes from real sessions, and the 0.5 migration frees the spaces left occupied.
+
+Review during 0.6: a lot could change its currency at any time, which would silently change the meaning of every amount priced in it. A lot with tariffs now refuses the change (`CURRENCY_IN_USE`), enforced by a composite foreign key. A zone used by a tariff answers `ZONE_IN_USE` instead of the misleading "has spaces" message.
+
+Review during 0.7: reservable spaces are now the reservation pool. Walk-ins are assigned to them last and arrivals with a reservation first; a space held for a reservation (`reserved`) can only be taken by that arrival. `SpaceCompatibility` moved from ParkingSessions to Parking so Reservations can use it without a circular dependency. The weekly schedule now answers whether an interval is fully open, including overnight shifts.
+
+Review during 0.8: spaces marked assignable can be the fixed space of a membership. Walk-ins take them after the others, and a member arriving takes the assigned space when it is free.
+
 ---
 
 
@@ -3448,6 +3490,30 @@ Vehicle history
 Deliverable:
 
 Complete customer and vehicle domain.
+
+Status:
+
+Implemented in the codebase:
+
+```text
+Customers: individuals, businesses and corporates
+Individuals affiliated to a business or corporate customer
+Documents normalized and unique per tenant and document type
+Vehicles with type, brand, model, color, year and electric flag
+Plate normalization (ABC-123 = ABC 123 = ABC123), unique per tenant and country
+Country plate rules behind PlateRules (Colombia: car, motorcycle, motocarro, diplomatic, trailer, temporary)
+Live plate check with format, suggested type and duplicate detection
+Customer-vehicle relationships (owner, driver, authorized) with a single active owner and ownership transfer
+Vehicle status (active, inactive, blocked with a mandatory reason)
+Vehicle history timeline (registration, changes, plate corrections, status, links)
+customers.view / customers.create / customers.update, backfilled to existing system roles
+Composite tenant foreign keys, partial unique indexes and row level security on every new table
+Customer directory, customer profile, vehicle list and vehicle detail screens
+```
+
+Customers are deactivated, not deleted; erasure or anonymization on request (habeas data) is pending before production. Sessions (0.5), reservations (0.7) and LPR reads (0.14) will append to the vehicle history. See ADR-014.
+
+Review during 0.5: entries, exits and cancellations now append to the vehicle history, and a visitor registered at the gate is marked as such.
 
 ---
 
@@ -3472,6 +3538,37 @@ Realtime updates
 Deliverable:
 
 A complete manually operated parking system.
+
+Status:
+
+Implemented in the codebase:
+
+```text
+Manual entry by plate: known vehicles are identified, unknown plates are registered as visitors
+Blocked vehicles are denied; a vehicle cannot be inside the same lot twice
+Automatic space assignment by vehicle type (EV first for electric cars), manual choice, or entry without space
+Exit with stay duration in started minutes; the space is freed in the same transaction
+Session lifecycle: open, closed, cancelled (with mandatory reason and its own permission)
+Space reassignment of an open session
+Idempotency-Key on entry and exit; retries return the original session
+Partial unique indexes: one open session per vehicle and lot, one per space
+Operations summary per lot in local time: occupancy, vehicles inside, entries, exits, average stay
+Session history with filters by lot, status, plate and local day
+Entries, exits and cancellations in the vehicle history; every operation audited
+sessions.view / sessions.cancel, backfilled to existing system roles
+Operator screen (entry form, vehicles inside, exit, move, cancel) and history screen
+Live updates by polling change markers (GET /api/v1/live); the dashboard refreshes too
+```
+
+Charging at exit arrives with pricing (0.6) and payments (0.9). Live updates use polling instead of Reverb, which would have forced a downgrade of `guzzlehttp/psr7`; the transport can change without touching the use cases. See ADR-015.
+
+Review during 0.9: the exit can collect the payment in the same transaction (cash with change, card, transfer); if the cash does not cover the charge the vehicle stays inside. An exit without payment leaves the stay owing: the history filters it (`unpaid=1`), the session shows its balance and the summary adds `collected_today` and `unpaid_today`. The exit audit had `charge_status` twice; it now records the `payment_id` instead.
+
+Review during 0.8: an entry asks Memberships whether a membership covers the arrival and answers `notices` for the operator; a covered stay is attributed to the membership holder. The exit event in the vehicle timeline records the charge status, so a covered exit no longer reads as "$0" without explanation.
+
+Review during 0.7: an entry checks in the vehicle's reservation, an exit completes it and a cancelled entry restores it. The `Idempotency-Key` handling moved to Shared, since bookings use it too.
+
+Review during 0.6: the exit now prices the stay and stores the charge. SQLite (used by CI) rebuilds a table to add columns with foreign keys and recreates partial indexes without their `WHERE`; the 0.6 migration restores the open-session indexes explicitly, otherwise a space could hold only one session in its whole history on SQLite. PostgreSQL was not affected.
 
 ---
 
@@ -3500,6 +3597,35 @@ Deliverable:
 
 Configurable commercial pricing engine.
 
+Status:
+
+Implemented in the codebase:
+
+```text
+Tariffs per lot in the lot's currency, stored as integer minor units (5.000 COP = 500000)
+One rate shape: cumulative brackets, a started step after them and an optional cap per 24 h
+Hourly, fractional, daily, progressive and bracket prices are configurations of that shape
+Filters by vehicle type, zone and weekly entry windows in local time (night, weekends)
+Selection by priority, then specificity (zone, window, vehicle), then code: deterministic
+Grace period from the lot, overridable per tariff; a stay within grace is free
+Manual discounts chosen at the exit (percentage, fixed amount, free minutes) with sessions.discount
+Automatic promotions by local date and weekday of the exit; discounts never stack
+Immutable versions: every change publishes a new one; stays use the version in force at entry
+The exit stores tariff, version, discount, charged minutes, subtotal, discount, total and the explanation
+Exits without an applicable tariff are still registered, flagged as unpriced
+Quote of an open stay, simulator with past and future dates, version history with author and note
+Charged and unpriced exits in the operations summary; charge in the session history and vehicle timeline
+tariffs.view / tariffs.manage / sessions.discount, backfilled to existing system roles
+Composite tenant foreign keys, CHECK constraints and row level security on every new table
+Tariffs screen (tariffs, discounts and promotions, simulator), exit dialog with price and discount
+```
+
+Holidays and calendars, membership and reservation pricing, taxes and collecting the charge arrive with their versions (0.7, 0.8, 0.9, 0.11). See ADR-016.
+
+Review during 0.8: a stay covered by a membership is still priced with the tariff, so the value the membership paid is recorded, but it closes as `covered` with total 0 and takes no manual discount or promotion. Price lines gain the `membership` type.
+
+Review during 0.9: a quote now holds its price for a few minutes (`quote_token`, `NUVORA_QUOTE_HOLD_MINUTES`). An exit that sends a valid token is priced at the quoted instant, so the driver pays what they were told while the cashier collects. The token is encrypted and bound to the tenant, the session and the discount.
+
 ---
 
 
@@ -3525,6 +3651,28 @@ Deliverable:
 
 Production-quality reservation system.
 
+Status:
+
+Implemented in the codebase:
+
+```text
+Reservations of a space, a zone or any reservable space of the lot
+Availability: peak of overlapping reservations against the pool of reservable spaces, per lot and zone
+Lifecycle: pending (hold) → confirmed → active → completed; expired, no-show and cancelled with a reason
+Per-lot policy: buffer, hold, arrival tolerance, min/max duration, advance days, within operating hours
+Operating hours checked over the whole window, overnight shifts included
+Bookings serialised per lot (advisory lock) and PostgreSQL exclusion constraints per space and per vehicle
+Idempotency-Key on booking; retries return the original reservation
+Scheduled sweep every minute: expires holds, marks no-shows, holds the reserved space from its window
+Arrival by plate checks in the reservation and takes its space; exit completes it; cancelled entry restores it
+Estimated price with the tariffs in force at the start, stored with its explanation
+Reservations in the vehicle timeline and the session; every transition audited
+reservations.view / reservations.manage, backfilled to existing system roles; policy needs parking.update
+Reservations screen (agenda, booking with live availability, cancel, rules) and today's arrivals in operations
+```
+
+Changing a reservation, prepayment and no-show charges, QR and notifications arrive with later versions (0.9, 0.14, 0.17). See ADR-017.
+
 ---
 
 
@@ -3547,6 +3695,35 @@ VIP memberships
 Deliverable:
 
 Recurring customer access system.
+
+Status:
+
+Implemented in the codebase:
+
+```text
+Plans per tenant: price per period, currency, weekly/monthly/quarterly/yearly, grace days, vehicles, capacity
+Access rules per plan: lots, zones, vehicle types and weekly windows in local time (empty = no restriction)
+Categories (monthly, corporate, VIP, employees, residents, students...) as configuration, not code
+Sale to a customer with one or more vehicles, optional assigned space (spaces marked assignable)
+One vehicle per membership in force and one holder per assigned space, enforced by partial unique indexes
+Periods anchored to the start day in the tenant's local calendar; each period recorded as due
+Manual renewal (early renewals keep the paid days; expired ones restart today), at most one period ahead
+Idempotency-Key on renewal; a retry or double click never opens a second period
+Automatic renewal and expiration after the grace days: memberships:renew every hour, per tenant local day
+Suspension and cancellation with a reason, reactivation, automatic renewal on/off; every change audited
+Entry checks the membership: covered arrivals take the assigned space or a space in the plan's zones
+Uncovered members (suspended, expired, other lot, type, hours or zone) park as visitors with a notice
+Covered exits priced with the tariff and closed as covered (total 0, no discounts); covered exits in the summary
+Membership in the session, the history, the exit dialog and the vehicle timeline
+memberships.view / memberships.manage, backfilled to existing system roles
+Memberships screen (memberships, plans, sale, detail with vehicles, periods and actions)
+```
+
+Collecting periods, proration and refunds arrive with payments (0.9); barrier access by membership with LPR and hardware (0.12, 0.13); expiration notices with notifications (0.17). See ADR-018.
+
+Review during 0.9: periods are collected from the membership detail and move from `due` to `paid` (and back to `due` if a refund leaves a balance); the detail shows what is still owed. Coverage still does not depend on payment: an unpaid membership with automatic renewal keeps covering until someone suspends it. Whether coverage should end when a period stays unpaid past the grace days is a business decision left open.
+
+Review during 0.10: decided and changed. A covered arrival needs the period of that day paid in full once its grace days, counted from the period's first day, are over; otherwise the member parks as a visitor with the `MEMBERSHIP_UNPAID` notice. Before this, an unpaid membership with automatic renewal covered for free indefinitely.
 
 ---
 
@@ -3574,6 +3751,33 @@ Deliverable:
 
 Complete payment domain ready for provider integrations.
 
+Status:
+
+Implemented in the codebase:
+
+```text
+Payments module with a PayableSource contract: parking session charges and membership periods
+Cash with tendered amount and change; card terminal, transfer and other as manual payments with reference
+PaymentGateway port with an offline gateway; payments record provider and provider reference for 0.10
+Payment states (pending, completed, failed, partially refunded, refunded) checked by PostgreSQL
+Partial payments; never more than the balance; the payable is locked while collecting
+Idempotency-Key on payments and refunds, unique per tenant; concurrent retries answer as replays
+Payment at the exit in the same transaction; operators without payments.create leave the stay owing
+Quote hold: an exit priced at the quoted instant for a few minutes, with an encrypted token
+Refunds (all or part, same method, reason required) that reopen the payable's balance
+Consecutive numbers per tenant for receipts (RC), refunds (DV) and cash closings (CC)
+Printable receipt from the payment's own snapshot (not an electronic invoice)
+Payment history with filters and totals per method; balances in sessions and membership periods
+Cash closing per cashier and currency: expected vs counted cash, each movement in one closing only
+payments.view / create / refund / reconcile, backfilled to existing system roles; every change audited
+Payments screen (history, detail with refunds, cash closing), payment in the exit dialog,
+collection from the session history and the membership detail
+```
+
+Online providers, webhooks and statement reconciliation arrive with 0.10; taxes and electronic invoicing with 0.11. See ADR-019.
+
+Review during 0.10: online payments are pending until the provider approves them, so the receipt number is now given on approval (pending and failed links have none). Cash closings now take offline payments and completed offline refunds only; before, nothing filtered by provider, which would have put online money in a cashier's drawer. Refunds gain a status (`pending`, `completed`, `failed`) and the provider that processes them.
+
 ---
 
 
@@ -3596,6 +3800,32 @@ Payment reconciliation
 ```
 
 Each provider must remain isolated behind adapters.
+
+Status:
+
+Implemented in the codebase:
+
+```text
+Provider accounts per tenant (Wompi, PayU; sandbox or production), credentials encrypted and write-only
+OnlinePaymentProvider port; Wompi and PayU adapters own every code, signature and URL of their provider
+Payment links: pending payment, random token (hashed + encrypted), public page, hosted checkout
+Card, PSE, Nequi... chosen by the customer at the provider; Nuvora never sees card data
+One pending link per payable; receipt number given on approval; links expire (NUVORA_PAYMENT_LINK_MINUTES)
+Webhooks without session or CSRF, verified with the account's secret, scoped to the account's tenant
+Each notification recorded once (payment_provider_events); duplicates and retries applied once
+ApplyProviderResult: the single place an online payment changes status (webhook, sync, reconciliation)
+Amount and currency checked on approval; late approvals count; voids become refunds; overpaid flagged
+payments:sync every five minutes with backoff; expired links given up; pending refunds followed up
+Provider refunds (reserved, then requested outside the transaction; rejected ones give the amount back)
+Manual refunds of online payments (cash or transfer outside the provider)
+Reconciliation against the provider: safe fixes applied, the rest reported
+Online money and provider refunds excluded from cash closings
+payments.configure (owner, administrator), backfilled to existing system roles
+Pasarelas tab (accounts, webhook URL, reconciliation), link mode in the collect dialog,
+online details and actions in the payment detail, public payment page /pagar/{token}
+```
+
+Charging cards directly (tokenization), recurring automatic charges and sending links by e-mail, SMS or WhatsApp arrive later (0.17 for notifications). See ADR-020.
 
 ---
 
